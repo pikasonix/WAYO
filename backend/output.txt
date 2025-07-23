@@ -1,0 +1,11 @@
+Instance name : bar-n100-2
+Authors       : Pix
+Date          : 2025
+Reference     : Simplified Hybrid ACO + Pure Greedy
+Solution
+Route 1 : 32 22 12 62 42 92 26 76 17 67 9 59 33 83 13 63 48 82 98 46 39 96 89 72
+Route 2 : 15 34 65 84 40 90 45 95 6 3 56 44 53 94 25 21 71 75
+Route 3 : 27 77 20 70 28 78 49 99 35 85 24 74
+Route 4 : 30 37 29 80 79 87 43 19 69 50 100 16 66 1 51 4 54 93 41 91
+Route 5 : 18 68 36 86 31 5 55 81 47 8 58 97 2 52 14 64
+Route 6 : 23 10 60 73 11 61 38 88 7 57
