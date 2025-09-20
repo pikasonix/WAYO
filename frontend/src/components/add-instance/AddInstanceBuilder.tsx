@@ -2,7 +2,8 @@
 
 import React from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeftToLine, MapPinPlus, X, Grid2x2X, Grid2x2Plus, WandSparkles, MapPinXInside, LoaderCircle, FileCode, Download, Play } from 'lucide-react';
+import { ArrowLeftToLine, MapPinPlus, X, Grid2x2X, Grid2x2Plus, WandSparkles, MapPinXInside, LoaderCircle, FileCode, Download, Play, Link } from 'lucide-react';
+import CoordinateInspectorTool from './CoordinateInspectorTool';
 
 import type { NodeRow } from './NodeEditor';
 import TimeMatrixControls from './TimeMatrixControls';
@@ -73,6 +74,12 @@ const AddInstanceBuilder: React.FC<AddInstanceBuilderProps> = ({ onBack, onInsta
     const [isPickingNode, setIsPickingNode] = useState(false);
     const isPickingNodeRef = useRef(false);
     const pickPrevCloseRef = useRef<boolean | undefined>(undefined);
+    // Coordinate inspector tool state
+    const [isInspecting, setIsInspecting] = useState(true);
+    const isInspectingRef = useRef(false);
+    const [inspectHover, setInspectHover] = useState<{ lat: number; lng: number } | null>(null);
+    const [inspectPoint, setInspectPoint] = useState<{ x: number; y: number } | null>(null);
+    const inspectPopupRef = useRef<any | null>(null);
     const [selectedTableRowIndex, setSelectedTableRowIndex] = useState<number | null>(null);
     const selectedRowIndexRef = useRef<number | null>(null);
     const routeTimeRef = useRef<number>(480);
@@ -84,6 +91,7 @@ const AddInstanceBuilder: React.FC<AddInstanceBuilderProps> = ({ onBack, onInsta
     useEffect(() => { isPickingNodeRef.current = isPickingNode; }, [isPickingNode]);
     useEffect(() => { editingNodeRef.current = editingNode; }, [editingNode]);
     useEffect(() => { routeTimeRef.current = instanceData.routeTime; }, [instanceData.routeTime]);
+    useEffect(() => { isInspectingRef.current = isInspecting; }, [isInspecting]);
 
     // search
     const [searchQuery, setSearchQuery] = useState('');
@@ -322,6 +330,36 @@ const AddInstanceBuilder: React.FC<AddInstanceBuilderProps> = ({ onBack, onInsta
         showNotification('info', 'Chọn vị trí trên bản đồ cho node này');
     }, [showNotification]);
 
+    // Reverse geocode helper for inspector popup
+    const reverseGeocode = useCallback(async (lat: number, lng: number): Promise<string | null> => {
+        try {
+            const url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}`;
+            const res = await fetch(url, { headers: { 'Accept-Language': 'vi' } });
+            if (!res.ok) return null;
+            const data = await res.json();
+            return data?.display_name || null;
+        } catch {
+            return null;
+        }
+    }, []);
+
+    // Toggle inspector
+    const onToggleInspect = useCallback(() => {
+        setIsInspecting(prev => {
+            const next = !prev;
+            // close any existing inspect popup when turning off
+            if (!next && inspectPopupRef.current) {
+                try { inspectPopupRef.current.remove(); } catch { }
+                inspectPopupRef.current = null;
+            }
+            if (!next) {
+                setInspectHover(null);
+                setInspectPoint(null);
+            }
+            return next;
+        });
+    }, []);
+
     const searchLocation = useCallback(async (query: string) => {
         if (!query) return;
         setIsSearching(true);
@@ -428,6 +466,48 @@ const AddInstanceBuilder: React.FC<AddInstanceBuilderProps> = ({ onBack, onInsta
                 setTableData(prev => prev.map((r, i) => i === idx ? { ...r, lat, lng } : r));
                 setTableDirty(true);
                 stopLocationSelection();
+            } else if (isInspectingRef.current) {
+                // Coordinate inspector click: open a popup with coords and place name + Google Maps link
+                try { mapInstance.current?.closePopup(); } catch { }
+                const L = leafletRef.current;
+                if (!L) return;
+                const latStr = lat.toFixed(6);
+                const lngStr = lng.toFixed(6);
+                const gmapsUrl = `https://www.google.com/maps/search/?api=1&query=${latStr},${lngStr}`;
+                const baseHtml = `
+                    <div class="text-sm">
+                        <div class="font-semibold">Tọa độ</div>
+                        <div class="mt-1 text-gray-800">${latStr}, ${lngStr}</div>
+                        <div class="mt-2 text-xs text-gray-500" id="inspect-place">Đang tra cứu địa danh...</div>
+                        <div class="mt-2">
+                            <a href=\"${gmapsUrl}\" target=\"_blank\" rel=\"noopener noreferrer\" class=\"inline-flex items-center gap-1 text-blue-600 hover:underline\">
+                                <span>Google Maps</span>
+                            </a>
+                        </div>
+                    </div>`;
+                const popup = L.popup({
+                    closeButton: true,
+                    autoClose: true,
+                    className: 'inspect-popup',
+                    offset: L.point(0, -10)
+                })
+                    .setLatLng([lat, lng])
+                    .setContent(baseHtml)
+                    .openOn(mapInstance.current);
+                inspectPopupRef.current = popup;
+                // Fetch place name and update
+                reverseGeocode(lat, lng).then(name => {
+                    const exists = inspectPopupRef.current === popup; // only update if still the same popup
+                    if (!exists) return;
+                    try {
+                        const container = popup.getElement() as HTMLElement | null;
+                        if (!container) return;
+                        const placeEl = container.querySelector('#inspect-place');
+                        if (placeEl) {
+                            placeEl.textContent = name || 'Không tìm thấy địa danh';
+                        }
+                    } catch { }
+                });
             } else if (isPickingNodeRef.current && editingNodeRef.current) {
                 // If user is in node-picking mode, update the editing node coords
                 const current = editingNodeRef.current;
@@ -476,6 +556,26 @@ const AddInstanceBuilder: React.FC<AddInstanceBuilderProps> = ({ onBack, onInsta
         setMapReady(true);
         return () => { try { mapInstance.current?.remove(); } catch { } mapInstance.current = null; setMapReady(false); };
     }, [leafletLoaded, mapRef.current]);
+
+    // When inspecting is enabled, track mouse move to show live coordinates near cursor
+    useEffect(() => {
+        if (!mapReady || !mapInstance.current || !leafletRef.current) return;
+        const map = mapInstance.current;
+        const onMove = (e: any) => {
+            if (!isInspectingRef.current) return;
+            try {
+                const p = map.latLngToContainerPoint(e.latlng);
+                setInspectHover({ lat: e.latlng.lat, lng: e.latlng.lng });
+                setInspectPoint({ x: p.x, y: p.y });
+            } catch { }
+        };
+        if (isInspecting) {
+            map.on('mousemove', onMove);
+        }
+        return () => {
+            try { map.off('mousemove', onMove); } catch { }
+        };
+    }, [isInspecting, mapReady]);
 
     // update markers & lines between paired pickup-delivery
     const pairLinesRef = useRef<any[]>([]);
@@ -819,6 +919,11 @@ const AddInstanceBuilder: React.FC<AddInstanceBuilderProps> = ({ onBack, onInsta
                             </div>
                         </div>
 
+                        {/* Coordinate Inspector Tool */}
+                        <div className="flex items-center space-x-2">
+                            <CoordinateInspectorTool active={isInspecting} onToggle={onToggleInspect} />
+                        </div>
+
                         <TimeMatrixControls
                             nodesLength={nodes.length}
                             isGenerating={isGeneratingMatrix}
@@ -933,7 +1038,16 @@ const AddInstanceBuilder: React.FC<AddInstanceBuilderProps> = ({ onBack, onInsta
                             )}
                         </div>
                     </div>
-                    <div ref={mapRef} className="absolute inset-0" style={{ cursor: isSelectingLocation || isAddingNode ? 'crosshair' : 'default' }} />
+                    {/* Live coordinate overlay while inspecting */}
+                    {isInspecting && inspectHover && inspectPoint && (
+                        <div
+                            className="absolute pointer-events-none bg-white border border-gray-300 rounded px-2 py-1 text-[11px] text-gray-800 shadow"
+                            style={{ left: (inspectPoint.x + 12) + 'px', top: (inspectPoint.y + 12) + 'px', zIndex: 1000 }}
+                        >
+                            {inspectHover.lat.toFixed(6)}, {inspectHover.lng.toFixed(6)}
+                        </div>
+                    )}
+                    <div ref={mapRef} className="absolute inset-0" style={{ cursor: (isSelectingLocation || isAddingNode || isInspecting) ? 'crosshair' : 'default' }} />
                 </div>
                 {/* Right node editor panel removed (using popovers on markers instead) */}
             </div>
