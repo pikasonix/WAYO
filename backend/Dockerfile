@@ -1,17 +1,33 @@
+FROM alpine:3.19 AS build
+
+# Install build deps (g++, make) to compile C++ binary
+RUN apk add --no-cache g++ make cmake pkgconf build-base
+
+WORKDIR /src
+
+# Copy only the C++ source to compile
+COPY PDPTW_HYBRID_ACO_GREEDY_V3.cpp /src/
+
+# Compile to a linux executable
+RUN g++ PDPTW_HYBRID_ACO_GREEDY_V3.cpp -O2 -std=c++17 -o PDPTW_HYBRID_ACO_GREEDY_V3 || true
+
+
 FROM node:18-alpine
 
-# Create app directory
 WORKDIR /usr/src/app
 
-# Install app dependencies
+# Install runtime deps
 COPY package*.json ./
 RUN npm ci --only=production
 
-# Copy application code
+# Copy app code
 COPY . .
 
-# Ensure the algorithm executable (Windows .exe) is present or user provides a compatible binary
-RUN chmod +x PDPTW_HYBRID_ACO_GREEDY_V3.exe || true
+# Copy compiled binary from build stage if present
+COPY --from=build /src/PDPTW_HYBRID_ACO_GREEDY_V3 ./PDPTW_HYBRID_ACO_GREEDY_V3
+
+# Make sure executable bits are set (if binary copied exists)
+RUN if [ -f ./PDPTW_HYBRID_ACO_GREEDY_V3 ]; then chmod +x ./PDPTW_HYBRID_ACO_GREEDY_V3; fi || true
 
 ENV PORT=3001
 EXPOSE 3001

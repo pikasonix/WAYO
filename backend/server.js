@@ -11,7 +11,15 @@ const PORT = process.env.PORT || 3001;
 const HOST = process.env.HOST || '0.0.0.0';
 const CORS_ORIGIN = process.env.CORS_ORIGIN || '*';
 const MAX_FILE_SIZE = process.env.MAX_FILE_SIZE || '5mb';
-const ALGORITHM_EXECUTABLE = process.env.ALGORITHM_EXECUTABLE || 'PDPTW_HYBRID_ACO_GREEDY_V3.exe';
+// Prefer a Linux binary if present, otherwise fall back to env or Windows .exe
+let ALGORITHM_EXECUTABLE = process.env.ALGORITHM_EXECUTABLE || 'PDPTW_HYBRID_ACO_GREEDY_V3';
+// If the linux binary not present but .exe exists, use that (for local Windows dev)
+if (!fs.existsSync(path.join(__dirname, ALGORITHM_EXECUTABLE))) {
+    const alt = ALGORITHM_EXECUTABLE + '.exe';
+    if (fs.existsSync(path.join(__dirname, alt))) {
+        ALGORITHM_EXECUTABLE = alt;
+    }
+}
 
 // Allow all origins by reflecting the request origin in the response
 app.use(cors({
