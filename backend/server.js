@@ -7,7 +7,8 @@ const cors = require('cors');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
-const HOST = process.env.HOST || 'localhost';
+// bind to 0.0.0.0 in containers/hosts by default
+const HOST = process.env.HOST || '0.0.0.0';
 const CORS_ORIGIN = process.env.CORS_ORIGIN || '*';
 const MAX_FILE_SIZE = process.env.MAX_FILE_SIZE || '5mb';
 const ALGORITHM_EXECUTABLE = process.env.ALGORITHM_EXECUTABLE || 'PDPTW_HYBRID_ACO_GREEDY_V3.exe';
@@ -65,6 +66,11 @@ app.post('/api/solve', (req, res) => {
         }
         res.json({ success: true, result });
     });
+});
+
+// simple health check for platform probes
+app.get('/health', (req, res) => {
+    res.json({ status: 'ok' });
 });
 
 app.listen(PORT, HOST, () => {
