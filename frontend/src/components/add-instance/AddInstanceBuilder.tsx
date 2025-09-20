@@ -74,6 +74,16 @@ const AddInstanceBuilder: React.FC<AddInstanceBuilderProps> = ({ onBack, onInsta
     const [isPickingNode, setIsPickingNode] = useState(false);
     const isPickingNodeRef = useRef(false);
     const pickPrevCloseRef = useRef<boolean | undefined>(undefined);
+    // Link mode state (drag from pickup -> delivery)
+    const [isLinkingMode, setIsLinkingMode] = useState(false);
+    const isLinkingModeRef = useRef(false);
+    // Drag state for linking
+    const linkingDragRef = useRef<{ active: boolean; fromId: number | null; tempLine: any | null }>(
+        { active: false, fromId: null, tempLine: null }
+    );
+    const hoveredMarkerIdRef = useRef<number | null>(null);
+    const mapDraggingPrevRef = useRef<boolean | null>(null);
+    const autoPanLastTsRef = useRef<number>(0);
     // Coordinate inspector tool state
     const [isInspecting, setIsInspecting] = useState(true);
     const isInspectingRef = useRef(false);
@@ -92,6 +102,9 @@ const AddInstanceBuilder: React.FC<AddInstanceBuilderProps> = ({ onBack, onInsta
     useEffect(() => { editingNodeRef.current = editingNode; }, [editingNode]);
     useEffect(() => { routeTimeRef.current = instanceData.routeTime; }, [instanceData.routeTime]);
     useEffect(() => { isInspectingRef.current = isInspecting; }, [isInspecting]);
+    useEffect(() => { isLinkingModeRef.current = isLinkingMode; }, [isLinkingMode]);
+
+    // (moved ESC/mode-off cancel effects below cancelLinkingDrag)
 
     // search
     const [searchQuery, setSearchQuery] = useState('');
@@ -360,6 +373,81 @@ const AddInstanceBuilder: React.FC<AddInstanceBuilderProps> = ({ onBack, onInsta
         });
     }, []);
 
+    // Cancel current linking drag (if any)
+    const cancelLinkingDrag = useCallback((silent = false) => {
+        const st = linkingDragRef.current;
+        try { st.tempLine?.remove(); } catch { }
+        linkingDragRef.current = { active: false, fromId: null, tempLine: null };
+        // restore map dragging
+        try {
+            const map = mapInstance.current;
+            if (map && mapDraggingPrevRef.current !== null) {
+                if (mapDraggingPrevRef.current) map.dragging.enable(); else map.dragging.disable();
+                mapDraggingPrevRef.current = null;
+            }
+        } catch { }
+        if (!silent) showNotification('info', 'Đã hủy nối điểm');
+    }, [showNotification]);
+
+    // Cancel linking on ESC
+    useEffect(() => {
+        const onKey = (e: KeyboardEvent) => {
+            if (e.key === 'Escape' && linkingDragRef.current.active) {
+                e.preventDefault();
+                cancelLinkingDrag();
+            }
+        };
+        window.addEventListener('keydown', onKey);
+        return () => { window.removeEventListener('keydown', onKey); };
+    }, [cancelLinkingDrag]);
+
+    // If user turns off linking mode while dragging, cancel temp line
+    useEffect(() => {
+        if (!isLinkingMode && linkingDragRef.current.active) {
+            cancelLinkingDrag(true);
+        }
+    }, [isLinkingMode, cancelLinkingDrag]);
+
+    // Complete linking between two nodes, enforcing data model updates
+    const finishLinking = useCallback((fromId: number, toId: number) => {
+        setNodes(prev => {
+            let next = [...prev];
+            const fromIdx = next.findIndex(n => n.id === fromId);
+            const toIdx = next.findIndex(n => n.id === toId);
+            if (fromIdx < 0 || toIdx < 0) return prev;
+            const from = next[fromIdx];
+            const to = next[toIdx];
+            // Validate: from cannot be depot/delivery; to cannot be depot/pickup
+            if (from.type === 'depot' || from.type === 'delivery') return prev;
+            if (to.type === 'depot' || to.type === 'pickup') return prev;
+            // Clear previous links if any
+            if (from.deliveryId && from.deliveryId !== toId) {
+                next = next.map(n => (n.id === from.deliveryId && n.type === 'delivery') ? { ...n, pickupId: undefined } : n);
+            }
+            if (to.pickupId && to.pickupId !== fromId) {
+                next = next.map(n => (n.id === to.pickupId && n.type === 'pickup') ? { ...n, deliveryId: undefined } : n);
+            }
+            // Apply type conversions if needed and new link
+            const newFrom = { ...from, type: from.type === 'regular' ? 'pickup' as const : from.type, deliveryId: toId };
+            const newTo = { ...to, type: to.type === 'regular' ? 'delivery' as const : to.type, pickupId: fromId };
+            next[fromIdx] = newFrom;
+            next[toIdx] = newTo;
+            return next;
+        });
+        setTimeMatrix([]);
+        showNotification('success', `Đã ghép pickup #${fromId} → delivery #${toId}`);
+        // clear temp line
+        cancelLinkingDrag(true);
+        // ensure map dragging restored
+        try {
+            const map = mapInstance.current;
+            if (map && mapDraggingPrevRef.current !== null) {
+                if (mapDraggingPrevRef.current) map.dragging.enable(); else map.dragging.disable();
+                mapDraggingPrevRef.current = null;
+            }
+        } catch { }
+    }, [cancelLinkingDrag, showNotification]);
+
     const searchLocation = useCallback(async (query: string) => {
         if (!query) return;
         setIsSearching(true);
@@ -544,6 +632,9 @@ const AddInstanceBuilder: React.FC<AddInstanceBuilderProps> = ({ onBack, onInsta
                 setIsPickingNode(false);
                 isPickingNodeRef.current = false;
                 showNotification('success', 'Đã chọn tọa độ cho node');
+            } else if (isLinkingModeRef.current && linkingDragRef.current.active) {
+                // Mouse click on map while dragging but not over a target: cancel
+                cancelLinkingDrag();
             } else if (isAddingNodeRef.current) {
                 setNodes(prev => {
                     const nextIdLocal = prev.length === 0 ? 0 : prev.reduce((m, n) => Math.max(m, n.id), 0) + 1;
@@ -553,9 +644,53 @@ const AddInstanceBuilder: React.FC<AddInstanceBuilderProps> = ({ onBack, onInsta
                 setTimeMatrix([]);
             }
         });
+        // Cancel drag when mouse released on empty map area
+        mapInstance.current.on('mouseup', () => {
+            if (isLinkingModeRef.current && linkingDragRef.current.active) {
+                cancelLinkingDrag(true);
+            }
+        });
+        // While in linking mode, update temp green line as cursor moves and slow auto-pan
+        const onMoveForLink = (e: any) => {
+            if (!isLinkingModeRef.current) return;
+            const st = linkingDragRef.current;
+            if (!st.active || !st.tempLine) return;
+            const from = nodesRef.current.find(nn => nn.id === st.fromId);
+            if (!from) return;
+            try { st.tempLine.setLatLngs([[from.lat, from.lng], [e.latlng.lat, e.latlng.lng]]); } catch { }
+            // Slow auto-pan when cursor near map edges
+            try {
+                const map = mapInstance.current;
+                if (!map) return;
+                const now = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+                const throttleMs = 40;
+                if (now - autoPanLastTsRef.current < throttleMs) return;
+                const size = map.getSize();
+                const pt = e.containerPoint || map.latLngToContainerPoint(e.latlng);
+                const edge = 40; // px from edge to trigger
+                let dx = 0, dy = 0;
+                const step = 20; // pan step in px
+                if (pt.x < edge) dx = -step;
+                else if (pt.x > size.x - edge) dx = step;
+                if (pt.y < edge) dy = -step;
+                else if (pt.y > size.y - edge) dy = step;
+                if (dx !== 0 || dy !== 0) {
+                    autoPanLastTsRef.current = now;
+                    map.panBy([dx, dy], { animate: true, duration: 0.2, easeLinearity: 0.25 });
+                }
+            } catch { }
+        };
+        mapInstance.current.on('mousemove', onMoveForLink);
         setMapReady(true);
-        return () => { try { mapInstance.current?.remove(); } catch { } mapInstance.current = null; setMapReady(false); };
-    }, [leafletLoaded, mapRef.current]);
+        return () => {
+            try { mapInstance.current?.off('mouseup'); } catch { }
+            try { mapInstance.current?.off('mousemove', onMoveForLink); } catch { }
+            try { mapInstance.current?.remove(); } catch { }
+            mapInstance.current = null; setMapReady(false);
+            // cleanup any temp link
+            cancelLinkingDrag(true);
+        };
+    }, [leafletLoaded, mapRef.current, cancelLinkingDrag]);
 
     // When inspecting is enabled, track mouse move to show live coordinates near cursor
     useEffect(() => {
@@ -615,11 +750,73 @@ const AddInstanceBuilder: React.FC<AddInstanceBuilderProps> = ({ onBack, onInsta
                 autoPan: false,
                 offset: L.point(140, 300)
             });
+            // Linking interactions
+            marker.on('mousedown', (e: any) => {
+                if (!isLinkingModeRef.current) return;
+                try { e.originalEvent?.preventDefault(); e.originalEvent?.stopPropagation(); } catch { }
+                if (n.type !== 'pickup' && n.type !== 'regular') {
+                    showNotification('error', 'Điểm bắt đầu phải là pickup hoặc regular');
+                    return;
+                }
+                // Start linking drag from this pickup
+                try { mapInstance.current?.closePopup(); } catch { }
+                const st = linkingDragRef.current;
+                // create a temp green line
+                try {
+                    const line = L.polyline([[n.lat, n.lng], [n.lat, n.lng]], { color: '#22c55e', weight: 3, opacity: 0.9 }).addTo(mapInstance.current!);
+                    linkingDragRef.current = { active: true, fromId: n.id, tempLine: line };
+                } catch {
+                    linkingDragRef.current = { active: true, fromId: n.id, tempLine: null };
+                }
+                // Disable default map dragging while we manage slow autopan
+                try {
+                    const map = mapInstance.current;
+                    if (map) {
+                        mapDraggingPrevRef.current = map.dragging.enabled();
+                        map.dragging.disable();
+                    }
+                } catch { }
+            });
+            marker.on('mousemove', (e: any) => {
+                const st = linkingDragRef.current;
+                if (!isLinkingModeRef.current || !st.active || !st.tempLine) return;
+                const from = nodesRef.current.find(nn => nn.id === st.fromId);
+                if (!from) return;
+                try { st.tempLine.setLatLngs([[from.lat, from.lng], [e.latlng.lat, e.latlng.lng]]); } catch { }
+            });
+            marker.on('mouseover', () => {
+                if (!isLinkingModeRef.current || !linkingDragRef.current.active) return;
+                hoveredMarkerIdRef.current = n.id;
+            });
+            marker.on('mouseout', () => {
+                if (hoveredMarkerIdRef.current === n.id) hoveredMarkerIdRef.current = null;
+            });
+            marker.on('mouseup', (e: any) => {
+                if (!isLinkingModeRef.current || !linkingDragRef.current.active) return;
+                const st = linkingDragRef.current;
+                if (!st.fromId || st.fromId === n.id) { cancelLinkingDrag(); return; }
+                const from = nodesRef.current.find(nn => nn.id === st.fromId);
+                const to = n;
+                if (!from) { cancelLinkingDrag(); return; }
+                if (to.type !== 'delivery' && to.type !== 'regular') {
+                    showNotification('error', 'Điểm kết thúc phải là delivery hoặc regular');
+                    cancelLinkingDrag(true);
+                    return;
+                }
+                try { e.originalEvent?.preventDefault(); e.originalEvent?.stopPropagation(); } catch { }
+                finishLinking(from.id, to.id);
+            });
             marker.on('click', () => {
+                if (isLinkingModeRef.current || linkingDragRef.current.active) return;
                 // Only update when selection actually changes to avoid unnecessary rerenders
                 setEditingNode(prev => (prev?.id === n.id ? prev : n));
             });
             marker.on('popupopen', () => {
+                // Suppress opening popup while in linking mode
+                if (isLinkingModeRef.current || linkingDragRef.current.active) {
+                    try { marker.closePopup(); } catch { }
+                    return;
+                }
                 try {
                     // Lazy import to avoid SSR issues at module init
                     const { createRoot } = require('react-dom/client');
@@ -709,7 +906,7 @@ const AddInstanceBuilder: React.FC<AddInstanceBuilderProps> = ({ onBack, onInsta
             if (p.type === 'pickup' && p.deliveryId) {
                 const d = nodes.find(n => n.id === p.deliveryId);
                 if (d && d.type === 'delivery') {
-                    const line = L.polyline([[p.lat, p.lng], [d.lat, d.lng]], { color: '#0d9488', weight: 2 }).addTo(mapInstance.current!);
+                    const line = L.polyline([[p.lat, p.lng], [d.lat, d.lng]], { color: '#22c55e', weight: 2 }).addTo(mapInstance.current!);
                     pairLinesRef.current.push(line);
                 }
             }
@@ -717,7 +914,7 @@ const AddInstanceBuilder: React.FC<AddInstanceBuilderProps> = ({ onBack, onInsta
                 const pick = nodes.find(n => n.id === p.pickupId);
                 if (pick && pick.type === 'pickup' && !pick.deliveryId) {
                     // delivery references pickup but pickup not yet set its deliveryId
-                    const line = L.polyline([[pick.lat, pick.lng], [p.lat, p.lng]], { color: '#0d9488', weight: 2 }).addTo(mapInstance.current!);;
+                    const line = L.polyline([[pick.lat, pick.lng], [p.lat, p.lng]], { color: '#22c55e', weight: 2 }).addTo(mapInstance.current!);;
                     pairLinesRef.current.push(line);
                 }
             }
@@ -864,6 +1061,22 @@ const AddInstanceBuilder: React.FC<AddInstanceBuilderProps> = ({ onBack, onInsta
                                 <span className="text-[12px] mt-1">{isAddingNode ? 'Hủy' : 'Thêm điểm'}</span>
                             </button>
 
+                            {/* Link pickup -> delivery */}
+                            <button
+                                onClick={() => {
+                                    setIsLinkingMode(prev => !prev);
+                                    // Turn off other transient modes for clarity
+                                    setIsAddingNode(false);
+                                    if (isSelectingLocationRef.current) stopLocationSelection();
+                                    setIsInspecting(false);
+                                }}
+                                title="Kéo từ điểm pickup đến điểm delivery để ghép cặp"
+                                className={`w-18 h-16 flex flex-col items-center justify-end pb-1 rounded-md transition-colors border ${isLinkingMode ? 'bg-green-600 text-white' : 'bg-green-50 text-green-700 border-green-500 hover:bg-green-100'}`}
+                            >
+                                <Link size={24} />
+                                <span className="text-[12px] mt-1">{isLinkingMode ? 'Đang nối' : 'Nối điểm'}</span>
+                            </button>
+
                             {/* Table Input */}
                             <button
                                 onClick={() => {
@@ -992,12 +1205,16 @@ const AddInstanceBuilder: React.FC<AddInstanceBuilderProps> = ({ onBack, onInsta
                 />
                 {/* Map panel */}
                 <div className="flex-1 bg-gray-50 relative">
-                    {(isAddingNode || isSelectingLocation) && (
+                    {(isAddingNode || isSelectingLocation || isLinkingMode) && (
                         <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-10 bg-blue-600 text-white px-4 py-2 rounded-lg shadow-lg pointer-events-none">
                             <div className="flex items-center space-x-2">
                                 <i className="fas fa-crosshairs animate-pulse"></i>
                                 <span className="font-medium text-xs">
-                                    {isAddingNode ? 'Click vào bản đồ để thêm node' : isSelectingLocation && selectedTableRowIndex != null ? `Chọn vị trí cho dòng ${selectedTableRowIndex + 1}` : ''}
+                                    {isAddingNode
+                                        ? 'Click vào bản đồ để thêm node'
+                                        : isSelectingLocation && selectedTableRowIndex != null
+                                            ? `Chọn vị trí cho dòng ${selectedTableRowIndex + 1}`
+                                            : 'Kéo từ pickup/regular đến delivery/regular để ghép cặp'}
                                 </span>
                             </div>
                         </div>
@@ -1047,7 +1264,7 @@ const AddInstanceBuilder: React.FC<AddInstanceBuilderProps> = ({ onBack, onInsta
                             {inspectHover.lat.toFixed(6)}, {inspectHover.lng.toFixed(6)}
                         </div>
                     )}
-                    <div ref={mapRef} className="absolute inset-0" style={{ cursor: (isSelectingLocation || isAddingNode || isInspecting) ? 'crosshair' : 'default' }} />
+                    <div ref={mapRef} className="absolute inset-0" style={{ cursor: (isSelectingLocation || isAddingNode || isInspecting || isLinkingMode) ? 'crosshair' : 'default' }} />
                 </div>
                 {/* Right node editor panel removed (using popovers on markers instead) */}
             </div>
