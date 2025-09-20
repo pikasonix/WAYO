@@ -171,6 +171,11 @@
   max-width: none !important;
 }
 
+/* Hide default Leaflet popup arrow for custom node popovers */
+.leaflet-popup.node-popup .leaflet-popup-tip {
+  display: none !important;
+}
+
 .leaflet-pane,
 .leaflet-top,
 .leaflet-bottom {

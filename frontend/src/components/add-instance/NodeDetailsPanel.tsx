@@ -2,7 +2,7 @@
 
 import React from 'react';
 import NodeEditor, { NodeRow } from './NodeEditor';
-import { X } from 'lucide-react';
+import { X, MapPin } from 'lucide-react';
 
 type Variant = 'panel' | 'popover';
 
@@ -14,6 +14,7 @@ interface NodeDetailsPanelProps {
     onDelete: (nodeId: number) => void;
     showNotification: (type: 'success' | 'error' | 'info', message: string) => void;
     onClose?: () => void;
+    onStartPickCoordinates?: () => void;
 }
 
 const NodeDetailsPanel: React.FC<NodeDetailsPanelProps> = ({
@@ -24,6 +25,7 @@ const NodeDetailsPanel: React.FC<NodeDetailsPanelProps> = ({
     onDelete,
     showNotification,
     onClose,
+    onStartPickCoordinates,
 }) => {
     if (variant === 'popover') {
         return (
@@ -43,6 +45,7 @@ const NodeDetailsPanel: React.FC<NodeDetailsPanelProps> = ({
                             onSaved={onClose}
                             showId={false}
                             showCoords={true}
+                            onStartPick={onStartPickCoordinates}
                         />
                     ) : (
                         <div className="text-center text-gray-500 py-6 text-sm">Không có node được chọn</div>

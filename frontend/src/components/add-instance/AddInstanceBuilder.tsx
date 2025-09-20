@@ -46,9 +46,11 @@ const AddInstanceBuilder: React.FC<AddInstanceBuilderProps> = ({ onBack, onInsta
 
     // node management
     const [nodes, setNodes] = useState<NodeRow[]>([]);
+    const nodesRef = useRef<NodeRow[]>([]);
     const [isAddingNode, setIsAddingNode] = useState<boolean>(false);
     const isAddingNodeRef = useRef(false);
     const [editingNode, setEditingNode] = useState<NodeRow | null>(null);
+    const editingNodeRef = useRef<NodeRow | null>(null);
     const [nextNodeId, setNextNodeId] = useState<number>(1);
 
     // time matrix state
@@ -68,13 +70,19 @@ const AddInstanceBuilder: React.FC<AddInstanceBuilderProps> = ({ onBack, onInsta
     const [tableDirty, setTableDirty] = useState(false);
     const [isSelectingLocation, setIsSelectingLocation] = useState(false);
     const isSelectingLocationRef = useRef(false);
+    const [isPickingNode, setIsPickingNode] = useState(false);
+    const isPickingNodeRef = useRef(false);
+    const pickPrevCloseRef = useRef<boolean | undefined>(undefined);
     const [selectedTableRowIndex, setSelectedTableRowIndex] = useState<number | null>(null);
     const selectedRowIndexRef = useRef<number | null>(null);
     const routeTimeRef = useRef<number>(480);
 
     useEffect(() => { isAddingNodeRef.current = isAddingNode; }, [isAddingNode]);
+    useEffect(() => { nodesRef.current = nodes; }, [nodes]);
     useEffect(() => { selectedRowIndexRef.current = selectedTableRowIndex; }, [selectedTableRowIndex]);
     useEffect(() => { isSelectingLocationRef.current = isSelectingLocation; }, [isSelectingLocation]);
+    useEffect(() => { isPickingNodeRef.current = isPickingNode; }, [isPickingNode]);
+    useEffect(() => { editingNodeRef.current = editingNode; }, [editingNode]);
     useEffect(() => { routeTimeRef.current = instanceData.routeTime; }, [instanceData.routeTime]);
 
     // search
@@ -100,6 +108,12 @@ const AddInstanceBuilder: React.FC<AddInstanceBuilderProps> = ({ onBack, onInsta
             setNextNodeId(maxId + 1);
         }
     }, [nodes]);
+
+    const handleNodeClick = useCallback((node: NodeRow) => {
+        if (mapInstance.current) {
+            mapInstance.current.setView([node.lat, node.lng], 15);
+        }
+    }, []);
 
     const createSampleInstance = useCallback(() => {
         const sampleNodes: NodeRow[] = [
@@ -293,6 +307,21 @@ const AddInstanceBuilder: React.FC<AddInstanceBuilderProps> = ({ onBack, onInsta
         // keep the selected row index for potential further edits rather than clearing immediately
     }, []);
 
+    // Start interactive picking of coordinates for currently editing node
+    const startPickForEditingNode = useCallback(() => {
+        // Remember previous map close-on-click option, then disable it while picking
+        try {
+            const map = mapInstance.current;
+            if (map && pickPrevCloseRef.current === undefined) {
+                pickPrevCloseRef.current = !!map.options?.closePopupOnClick;
+                map.options.closePopupOnClick = false;
+            }
+        } catch { }
+        setIsPickingNode(true);
+        isPickingNodeRef.current = true;
+        showNotification('info', 'Chọn vị trí trên bản đồ cho node này');
+    }, [showNotification]);
+
     const searchLocation = useCallback(async (query: string) => {
         if (!query) return;
         setIsSearching(true);
@@ -399,6 +428,42 @@ const AddInstanceBuilder: React.FC<AddInstanceBuilderProps> = ({ onBack, onInsta
                 setTableData(prev => prev.map((r, i) => i === idx ? { ...r, lat, lng } : r));
                 setTableDirty(true);
                 stopLocationSelection();
+            } else if (isPickingNodeRef.current && editingNodeRef.current) {
+                // If user is in node-picking mode, update the editing node coords
+                const current = editingNodeRef.current;
+                setNodes(prev => prev.map(n => n.id === current!.id ? { ...n, lat, lng } : n));
+                // also update editingNode state so NodeEditor shows new coords
+                setEditingNode(prev => prev ? { ...prev, lat, lng } : prev);
+                // re-render popup React root for this node if present so popup updates immediately
+                try {
+                    const root = popupRootsRef.current.get(current!.id);
+                    if (root) {
+                        const updatedNode = { ...current!, lat, lng };
+                        root.render(
+                            <NodeDetailsPanel
+                                variant="popover"
+                                node={updatedNode}
+                                nodes={nodesRef.current}
+                                onUpdate={handleNodeUpdate}
+                                onDelete={handleNodeDelete}
+                                showNotification={showNotification}
+                                onClose={() => { try { markersRef.current.get(updatedNode.id)?.closePopup(); } catch { } }}
+                                onStartPickCoordinates={startPickForEditingNode}
+                            />
+                        );
+                    }
+                } catch (e) { /* ignore */ }
+                // restore map closePopup behavior
+                try {
+                    const map = mapInstance.current;
+                    if (map && pickPrevCloseRef.current !== undefined) {
+                        map.options.closePopupOnClick = pickPrevCloseRef.current;
+                        pickPrevCloseRef.current = undefined;
+                    }
+                } catch { }
+                setIsPickingNode(false);
+                isPickingNodeRef.current = false;
+                showNotification('success', 'Đã chọn tọa độ cho node');
             } else if (isAddingNodeRef.current) {
                 setNodes(prev => {
                     const nextIdLocal = prev.length === 0 ? 0 : prev.reduce((m, n) => Math.max(m, n.id), 0) + 1;
@@ -433,26 +498,22 @@ const AddInstanceBuilder: React.FC<AddInstanceBuilderProps> = ({ onBack, onInsta
             const icon = L.divIcon({
                 className: 'node-marker',
                 html: `<div class="node-marker-inner ${selected ? 'selected' : ''}" style="background:${color};border:2px solid #ffffff;color:#fff;width:24px;height:24px;display:flex;align-items:center;justify-content:center;border-radius:50%;font-size:11px;font-weight:600;box-shadow:0 0 0 2px ${color}33;">${n.id}</div>`,
-                // Move popup to the right of the marker. Adjust X to half icon width + small gap.
-                popupAnchor: [18, 0]
+                iconAnchor: [12, 12],
+                popupAnchor: [0, 0]
             });
             const marker = L.marker([n.lat, n.lng], { title: `#${n.id}`, icon }).addTo(mapInstance.current!);
             // Bind popup container for React content
             const container = document.createElement('div');
             container.style.width = '100%';
-            // Force popup to open on the right side of the marker by setting a rightward offset
-            // and disabling Leaflet's auto-pan / keepInView behavior which can flip placement.
             marker.bindPopup(container, {
                 minWidth: 180,
                 maxWidth: 260,
                 closeButton: true,
                 autoClose: true,
                 className: 'node-popup',
-                // disable automatic re-positioning so popup stays where we anchor it
                 keepInView: false,
                 autoPan: false,
-                // offset the popup to the right
-                offset: L.point(24, 0)
+                offset: L.point(140, 300)
             });
             marker.on('click', () => {
                 // Only update when selection actually changes to avoid unnecessary rerenders
@@ -477,14 +538,44 @@ const AddInstanceBuilder: React.FC<AddInstanceBuilderProps> = ({ onBack, onInsta
                             onDelete={handleNodeDelete}
                             showNotification={showNotification}
                             onClose={onClose}
+                            onStartPickCoordinates={startPickForEditingNode}
                         />
                     );
-                    // Defer an update so Leaflet measures after React paints
-                    setTimeout(() => { try { marker.getPopup()?.update(); } catch { } }, 0);
-                    // Observe size changes and update popup layout
-                    const obs = new ResizeObserver(() => { try { marker.getPopup()?.update(); } catch { } });
+                    // After React paints, measure and align popup to the RIGHT and slightly BELOW marker
+                    const alignRightCentered = () => {
+                        try {
+                            const popup = marker.getPopup();
+                            if (!popup) return;
+                            const rect = container.getBoundingClientRect();
+                            // minimal gap to keep popup close to marker
+                            const gap = 4;
+                            // Position close to the RIGHT of marker with minimal gap
+                            // Position slightly below marker center for better visual alignment
+                            popup.setOffset(L.point(Math.round(rect.width / 2 + gap + 16), Math.round(rect.height / 4)));
+                            popup.update();
+                        } catch { }
+                    };
+                    // Defer first alignment until layout is ready (a few frames for React to mount children)
+                    let rafId: number | null = null;
+                    let attempts = 0;
+                    const rafAlign = () => {
+                        attempts += 1;
+                        alignRightCentered();
+                        if (attempts < 5) {
+                            rafId = requestAnimationFrame(rafAlign);
+                        }
+                    };
+                    rafId = requestAnimationFrame(rafAlign);
+                    // Observe size changes and re-align
+                    const obs = new ResizeObserver(() => { alignRightCentered(); });
                     obs.observe(container);
                     popupResizeObsRef.current.set(n.id, obs);
+                    const onWinResize = () => alignRightCentered();
+                    window.addEventListener('resize', onWinResize);
+                    // Clean up resize listener when popup closes (handled below)
+                    // Store handler on the container for retrieval in popupclose
+                    (container as any).__onWinResize = onWinResize;
+                    (container as any).__rafId = rafId;
                 } catch { }
             });
             marker.on('popupclose', () => {
@@ -498,6 +589,16 @@ const AddInstanceBuilder: React.FC<AddInstanceBuilderProps> = ({ onBack, onInsta
                 if (obs) {
                     try { obs.disconnect(); } catch { }
                     popupResizeObsRef.current.delete(n.id);
+                }
+                // Remove window resize listener and cancel any RAF
+                const c: any = (container as any);
+                if (c && c.__onWinResize) {
+                    try { window.removeEventListener('resize', c.__onWinResize); } catch { }
+                    c.__onWinResize = undefined;
+                }
+                if (c && c.__rafId) {
+                    try { cancelAnimationFrame(c.__rafId); } catch { }
+                    c.__rafId = undefined;
                 }
                 setEditingNode(prev => (prev?.id === n.id ? null : prev));
             });
@@ -516,7 +617,7 @@ const AddInstanceBuilder: React.FC<AddInstanceBuilderProps> = ({ onBack, onInsta
                 const pick = nodes.find(n => n.id === p.pickupId);
                 if (pick && pick.type === 'pickup' && !pick.deliveryId) {
                     // delivery references pickup but pickup not yet set its deliveryId
-                    const line = L.polyline([[pick.lat, pick.lng], [p.lat, p.lng]], { color: '#0d9488', weight: 2 }).addTo(mapInstance.current!);
+                    const line = L.polyline([[pick.lat, pick.lng], [p.lat, p.lng]], { color: '#0d9488', weight: 2 }).addTo(mapInstance.current!);;
                     pairLinesRef.current.push(line);
                 }
             }
@@ -782,6 +883,7 @@ const AddInstanceBuilder: React.FC<AddInstanceBuilderProps> = ({ onBack, onInsta
                     isGeneratingMatrix={isGeneratingMatrix}
                     matrixGenerationProgress={matrixGenerationProgress}
                     instancePreview={instancePreview}
+                    onNodeClick={handleNodeClick}
                 />
                 {/* Map panel */}
                 <div className="flex-1 bg-gray-50 relative">

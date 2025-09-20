@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from 'react';
+import { MapPin } from 'lucide-react';
 
 export interface NodeRow {
     id: number;
@@ -25,9 +26,11 @@ interface NodeEditorProps {
     onSaved?: () => void; // callback when saved successfully (e.g., to close popover)
     showId?: boolean; // show ID field
     showCoords?: boolean; // show Lat/Lng fields
+    // Called to start interactive coordinate picking on the map for this node
+    onStartPick?: () => void;
 }
 
-const NodeEditor: React.FC<NodeEditorProps> = ({ node, nodes, onUpdate, onDelete, showNotification, dense = false, onSaved, showId = true, showCoords = true }) => {
+const NodeEditor: React.FC<NodeEditorProps> = ({ node, nodes, onUpdate, onDelete, showNotification, dense = false, onSaved, showId = true, showCoords = true, onStartPick }) => {
     const [edited, setEdited] = useState<NodeRow>({ ...node });
 
     // Controls fill their grid cell; we use 2-col grids in dense mode for paired fields
@@ -135,9 +138,30 @@ const NodeEditor: React.FC<NodeEditorProps> = ({ node, nodes, onUpdate, onDelete
                 </div>
             </div>
             {showCoords && (
-                <div className={`grid ${dense ? 'grid-cols-2' : 'grid-cols-2'} gap-2`}>
-                    {numericInput('Lat', edited.lat, v => setEdited(p => ({ ...p, lat: v })))}
-                    {numericInput('Lng', edited.lng, v => setEdited(p => ({ ...p, lng: v })))}
+                <div className={`flex items-start gap-2`}>
+                    <div className="flex-1">
+                        <label className={`${dense ? 'text-[11px]' : 'text-xs'} block`}>Lat</label>
+                        <input
+                            type="number"
+                            value={edited.lat}
+                            onChange={e => setEdited(p => ({ ...p, lat: Number(e.target.value) }))}
+                            className={`${inputWidthClass} border ${dense ? 'px-2 py-1 h-8 text-xs' : 'px-2 py-1'} rounded`}
+                        />
+                    </div>
+                    <div className="flex-1">
+                        <label className={`${dense ? 'text-[11px]' : 'text-xs'} block`}>Lng</label>
+                        <input
+                            type="number"
+                            value={edited.lng}
+                            onChange={e => setEdited(p => ({ ...p, lng: Number(e.target.value) }))}
+                            className={`${inputWidthClass} border ${dense ? 'px-2 py-1 h-8 text-xs' : 'px-2 py-1'} rounded`}
+                        />
+                    </div>
+                    <div className="flex items-end">
+                        <button type="button" onClick={() => onStartPick?.()} title="Chọn tọa độ trên bản đồ" className="ml-2 p-2 rounded bg-gray-100 hover:bg-gray-200 border">
+                            <MapPin className="h-4 w-4" />
+                        </button>
+                    </div>
                 </div>
             )}
             <div className={`grid ${dense ? 'grid-cols-2' : 'grid-cols-2'} gap-2`}>

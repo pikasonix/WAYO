@@ -257,12 +257,11 @@ const TrackAsiaTrafficPage: React.FC<Props> = ({ onBack }) => {
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                     <div className="col-span-2">
-                        <div className="bg-white rounded-lg shadow p-4">
-                            {isLoading ? (
-                                <div className="flex items-center justify-center h-96 bg-gray-50"><div className="text-center"><div className="relative"><div className="animate-spin rounded-full h-16 w-16 border-4 border-blue-200 border-t-blue-600 mx-auto"></div><div className="absolute inset-0 flex items-center justify-center"><i className="fas fa-map-marked-alt text-blue-600 text-lg"></i></div></div><p className="mt-4 text-gray-600 font-medium"><i className="fas fa-flag text-blue-600 mr-2"></i>Đang tải Track Asia Maps...</p><p className="text-sm text-gray-500 mt-2">Đang kết nối đến server Track Asia</p></div></div>
-                            ) : (
-                                <div id="track-asia-map" ref={mapContainer} className={`w-full h-[600px] relative ${isLoading ? 'hidden' : ''}`} style={{ width: '100%', height: '600px', position: 'relative', overflow: 'hidden', minHeight: '600px' }} />
+                        <div className="bg-white rounded-lg shadow p-4 relative">
+                            {isLoading && (
+                                <div className="absolute inset-0 flex items-center justify-center h-full bg-gray-50 z-10"><div className="text-center"><div className="relative"><div className="animate-spin rounded-full h-16 w-16 border-4 border-blue-200 border-t-blue-600 mx-auto"></div><div className="absolute inset-0 flex items-center justify-center"><i className="fas fa-map-marked-alt text-blue-600 text-lg"></i></div></div><p className="mt-4 text-gray-600 font-medium"><i className="fas fa-flag text-blue-600 mr-2"></i>Đang tải Track Asia Maps...</p><p className="text-sm text-gray-500 mt-2">Đang kết nối đến server Track Asia</p></div></div>
                             )}
+                            <div id="track-asia-map" ref={mapContainer} className="w-full h-[600px]" style={{ width: '100%', height: '600px', position: 'relative', overflow: 'hidden', minHeight: '600px' }} />
                         </div>
 
                         {!isLoading && (

@@ -131,7 +131,7 @@ const MultiSelectDropdown: React.FC<MultiSelectDropdownProps> = ({
         </div>
       </PopoverTrigger>
       <PopoverContent
-        side="bottom"
+        side="right"
         className="p-0"
         style={{ width: "var(--radix-popover-trigger-width)" }}
       >

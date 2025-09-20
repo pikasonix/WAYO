@@ -26,6 +26,7 @@ interface InstanceSettingsPanelProps {
     isGeneratingMatrix: boolean;
     matrixGenerationProgress: number;
     instancePreview: string;
+    onNodeClick: (node: NodeRow) => void;
 }
 
 const InstanceSettingsPanel: React.FC<InstanceSettingsPanelProps> = ({
@@ -41,6 +42,7 @@ const InstanceSettingsPanel: React.FC<InstanceSettingsPanelProps> = ({
     isGeneratingMatrix,
     matrixGenerationProgress,
     instancePreview,
+    onNodeClick,
 }) => {
     // Local collapsible section states
     const [showBasicInfo, setShowBasicInfo] = useState(true);
@@ -157,14 +159,14 @@ const InstanceSettingsPanel: React.FC<InstanceSettingsPanelProps> = ({
                                     const regulars = nodes.filter(n => n.type === 'regular');
 
                                     const renderNodeRow = (n: NodeRow) => (
-                                        <div key={n.id} className="flex items-center justify-between p-2 text-xs">
+                                        <div key={n.id} className="flex items-center justify-between p-2 text-xs cursor-pointer hover:bg-gray-100" onClick={() => onNodeClick(n)}>
                                             <div className="truncate">
                                                 <div className="font-medium">#{n.id} {n.type === 'depot' && '(Depot)'} {n.type === 'pickup' && 'P'} {n.type === 'delivery' && 'D'}</div>
                                                 <div className="text-[10px] text-gray-600">{n.lat.toFixed(4)}, {n.lng.toFixed(4)} • d={n.demand}</div>
                                             </div>
                                             <div className="flex items-center space-x-1">
-                                                <button onClick={() => updateNode(n.id, { demand: n.demand + 1 })} className="px-1 py-0.5 bg-gray-100 rounded">+D</button>
-                                                <button onClick={() => updateNode(n.id, { demand: n.demand - 1 })} className="px-1 py-0.5 bg-gray-100 rounded">-D</button>
+                                                <button onClick={(e) => { e.stopPropagation(); updateNode(n.id, { demand: n.demand + 1 }); }} className="px-1 py-0.5 bg-gray-100 rounded">+D</button>
+                                                <button onClick={(e) => { e.stopPropagation(); updateNode(n.id, { demand: n.demand - 1 }); }} className="px-1 py-0.5 bg-gray-100 rounded">-D</button>
                                             </div>
                                         </div>
                                     );
@@ -175,12 +177,12 @@ const InstanceSettingsPanel: React.FC<InstanceSettingsPanelProps> = ({
                                                 <div className="bg-gray-50">
                                                     <div className="px-2 py-1 text-[10px] font-semibold text-gray-600">Cặp Pickup-Delivery ({paired.length})</div>
                                                     {paired.map(pair => (
-                                                        <div key={pair.pickup.id} className="p-2 space-y-1">
+                                                        <div key={pair.pickup.id} className="p-2 space-y-1 cursor-pointer hover:bg-gray-100" onClick={() => onNodeClick(pair.pickup)}>
                                                             <div className="flex items-center justify-between text-xs">
                                                                 <div className="font-medium text-blue-600">Pickup #{pair.pickup.id}</div>
                                                                 <span className="text-[10px] text-gray-500">d={pair.pickup.demand}</span>
                                                             </div>
-                                                            <div className="flex items-center justify-between text-xs">
+                                                            <div className="flex items-center justify-between text-xs" onClick={(e) => { e.stopPropagation(); onNodeClick(pair.delivery); }}>
                                                                 <div className="font-medium text-red-600">Delivery #{pair.delivery.id}</div>
                                                                 <span className="text-[10px] text-gray-500">d={pair.delivery.demand}</span>
                                                             </div>
