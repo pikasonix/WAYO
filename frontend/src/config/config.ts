@@ -4,6 +4,16 @@ const config = {
         baseURL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001',
         basePath: process.env.NEXT_PUBLIC_API_BASE_PATH || '/api'
     },
+    mapbox: {
+        // Support common env var names
+        accessToken: process.env.NEXT_PUBLIC_MAPBOX_TOKEN
+            || process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN
+            || process.env.VITE_APP_MAPBOX_TOKEN
+            || '',
+        style: process.env.NEXT_PUBLIC_MAPBOX_STYLE
+            || process.env.VITE_APP_MAPBOX_STYLE
+            || 'mapbox://styles/mapbox/streets-v12'
+    },
     map: {
         tileUrl: process.env.NEXT_PUBLIC_MAP_TILE_URL || 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
         attribution: process.env.NEXT_PUBLIC_MAP_ATTRIBUTION || '&copy; <a href="http://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'

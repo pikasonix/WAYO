@@ -5,6 +5,7 @@ import type { Instance, Route, Solution } from '@/utils/dataModels';
 import dynamic from 'next/dynamic';
 const MapComponent = dynamic(() => import('@/components/map/MapComponent'), { ssr: false });
 import { createSolution } from '@/utils/dataModels';
+import { useRouter } from 'next/navigation';
 
 export interface RouteDetailsViewProps {
     route: Route | any | null;
@@ -54,6 +55,7 @@ export const RouteDetailsView: React.FC<RouteDetailsViewProps> = ({ route, insta
     const externalApiRef = useRef<any | null>(null);
     // Active segment highlight index for timeline (legacy-like interaction)
     const [clickedCardIndex, setClickedCardIndex] = useState<number | null>(null);
+    const router = useRouter();
 
     // Keep local selectedRoute in sync if parent route changes
     useEffect(() => {
@@ -77,6 +79,18 @@ export const RouteDetailsView: React.FC<RouteDetailsViewProps> = ({ route, insta
     }, [instance, route]);
 
     const metrics = route ? calcMetrics(route, filteredInstance) : null;
+
+    const handleNavigateRouting = () => {
+        if (!route?.sequence || !instance?.nodes) return;
+        // Build lat,lng pairs separated by '|'
+        const coordsList = route.sequence
+            .map((nodeId: number) => instance.nodes.find((n: any) => n.id === nodeId))
+            .filter(Boolean)
+            .map((node: any) => `${node.coords[0]},${node.coords[1]}`)
+            .join('|');
+        const profile = (typeof window !== 'undefined' && (localStorage.getItem('routingProfile') || 'driving')) || 'driving';
+        router.push(`/routing?coords=${encodeURIComponent(coordsList)}&profile=${encodeURIComponent(profile)}`);
+    };
 
     interface TimelineEvent {
         nodeId: number;
@@ -225,9 +239,21 @@ export const RouteDetailsView: React.FC<RouteDetailsViewProps> = ({ route, insta
                 </div>
                 <div className="w-80 bg-white border-l border-gray-200 flex flex-col overflow-hidden">
                     <div className="bg-purple-600 text-white p-4">
-                        <div className="flex items-center space-x-3">
-                            <i className="fas fa-clock text-xl" />
-                            <h3 className="text-lg font-semibold">Timeline Route</h3>
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center space-x-3">
+                                <i className="fas fa-clock text-xl" />
+                                <h3 className="text-lg font-semibold">Timeline Route</h3>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={handleNavigateRouting}
+                                disabled={!route?.sequence?.length}
+                                className="inline-flex items-center gap-2 bg-white/10 hover:bg-white/20 disabled:opacity-50 disabled:cursor-not-allowed text-white px-3 py-1.5 rounded-md text-sm font-medium transition-colors"
+                                title="Chuyển sang trang định tuyến và chỉ đường"
+                            >
+                                <MapIcon size={16} />
+                                <span>Chỉ đường</span>
+                            </button>
                         </div>
                     </div>
                     <div className="flex-1 overflow-y-auto">

@@ -1,6 +1,6 @@
-Instance name : instance-2025-09-20-18-42-08
+Instance name : instance-2025-09-20-20-33-46
 Authors       : Pix
 Date          : 2025
 Reference     : Simplified Hybrid ACO + Pure Greedy
 Solution
-Route 1 : 0 0 7 7 4 6 6 5 3 2 1 1 0 0 0 0
+Route 1 : 1 6 5 5 4 4 2 3 3 0 0 0 0 0
