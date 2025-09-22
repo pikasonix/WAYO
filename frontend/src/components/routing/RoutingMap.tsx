@@ -5,6 +5,7 @@ import mapboxgl from "mapbox-gl";
 import type { Feature, FeatureCollection, LineString, Geometry } from 'geojson';
 import "mapbox-gl/dist/mapbox-gl.css";
 import config from "@/config/config";
+import { getGeocoder } from '@/services/geocoding';
 import { computeBearing, stepBearingTowards, distanceMeters } from './geo';
 import { createPinElement } from './pinMarker';
 import { formatDuration, formatDistance, formatInstructionVI, renderInstructionPopupHTML } from './formatters';
@@ -61,6 +62,10 @@ export default function RoutingMap() {
     const maxTurnRateDegPerSecRef = useRef<number>(60);
     const [alwaysShowPopup, setAlwaysShowPopup] = useState<boolean>(true);
     const [showAllPopups, setShowAllPopups] = useState<boolean>(true);
+    // Display labels for picked/search points
+    const [startLabel, setStartLabel] = useState<string>("");
+    const [endLabel, setEndLabel] = useState<string>("");
+    const [waypointLabels, setWaypointLabels] = useState<string[]>([]);
     // Simulation UI state
     const [simPlaying, setSimPlaying] = useState<boolean>(false);
     const [simSpeed, setSimSpeed] = useState<number>(1);
@@ -70,6 +75,9 @@ export default function RoutingMap() {
     const cameraBearingRef = useRef<number>(0);
     const lastGuidanceTsRef = useRef<number | null>(null);
     const autoAdvanceThresholdM = 25;
+    // Map picking state (choose a point on map for start/end/waypoint)
+    type PickTarget = { type: 'start' } | { type: 'end' } | { type: 'via'; index: number };
+    const pickingRef = useRef<{ target: PickTarget; handler: (e: mapboxgl.MapMouseEvent) => void } | null>(null);
 
     // keep ref in sync with state
     useEffect(() => {
@@ -78,6 +86,51 @@ export default function RoutingMap() {
 
     const toLngLat = (p: { lat: number; lng: number }) => [p.lng, p.lat] as [number, number];
     // moved helpers to ./formatters, ./geo, ./maneuvers
+
+    // Reverse geocoding helper to get a human-friendly place name from coordinates
+    const reverseGeocode = useCallback(async (lng: number, lat: number): Promise<string | null> => {
+        try {
+            const gc = getGeocoder();
+            if (gc.reverse) return await gc.reverse(lng, lat);
+            // fallback to Mapbox if provider has no reverse
+            const token = config.mapbox?.accessToken || (process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN as string) || "";
+            if (!token) return null;
+            const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${lng},${lat}.json?limit=1&language=vi&access_token=${encodeURIComponent(token)}`;
+            const res = await fetch(url);
+            const data = await res.json();
+            return data?.features?.[0]?.place_name ?? null;
+        } catch { return null; }
+    }, []);
+
+    const updateStartLabelFrom = useCallback(async (lng: number, lat: number) => {
+        const name = await reverseGeocode(lng, lat);
+        setStartLabel(name || `${lat.toFixed(6)}, ${lng.toFixed(6)}`);
+    }, [reverseGeocode]);
+
+    const updateEndLabelFrom = useCallback(async (lng: number, lat: number) => {
+        const name = await reverseGeocode(lng, lat);
+        setEndLabel(name || `${lat.toFixed(6)}, ${lng.toFixed(6)}`);
+    }, [reverseGeocode]);
+
+    const updateWaypointLabelFrom = useCallback(async (index: number, lng: number, lat: number) => {
+        const name = await reverseGeocode(lng, lat);
+        setWaypointLabels((prev) => {
+            const next = prev.slice();
+            next[index] = name || `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+            return next;
+        });
+    }, [reverseGeocode]);
+
+    // Keep waypointLabels array length in sync with waypoints
+    useEffect(() => {
+        setWaypointLabels((prev) => {
+            const next = [...prev];
+            if (next.length !== waypoints.length) {
+                next.length = waypoints.length;
+            }
+            return next.map((v) => v ?? "");
+        });
+    }, [waypoints.length]);
 
     const positionAtDistance = useCallback((dist: number): { pos: [number, number]; bearing: number } | null => {
         const coords = simCoordsRef.current;
@@ -307,6 +360,57 @@ export default function RoutingMap() {
         mapRef.current.resetNorth({ duration: 300 });
     }, []);
 
+    const endPicking = useCallback(() => {
+        if (!mapRef.current) return;
+        if (pickingRef.current) {
+            mapRef.current.off('click', pickingRef.current.handler as any);
+            pickingRef.current = null;
+        }
+        try { mapRef.current.getCanvas().style.cursor = ''; } catch { }
+    }, []);
+
+    const beginPicking = useCallback((target: PickTarget) => {
+        if (!mapRef.current) return;
+        endPicking();
+        try { mapRef.current.getCanvas().style.cursor = 'crosshair'; } catch { }
+        const handler = async (e: mapboxgl.MapMouseEvent) => {
+            const { lng, lat } = e.lngLat;
+            if (target.type === 'start') {
+                setStartPoint({ lat, lng });
+                await updateStartLabelFrom(lng, lat);
+            } else if (target.type === 'end') {
+                setEndPoint({ lat, lng });
+                await updateEndLabelFrom(lng, lat);
+            } else {
+                const idx = target.index;
+                const next = [...waypoints];
+                next[idx] = { lat, lng };
+                setWaypoints(next);
+                await updateWaypointLabelFrom(idx, lng, lat);
+            }
+            endPicking();
+        };
+        pickingRef.current = { target, handler };
+        mapRef.current.on('click', handler as any);
+    }, [endPicking, setStartPoint, setEndPoint, waypoints, setWaypoints, updateStartLabelFrom, updateEndLabelFrom, updateWaypointLabelFrom]);
+
+    // When start/end/waypoints change (from search, typing, or programmatically), try to populate labels
+    useEffect(() => {
+        if (startPoint) updateStartLabelFrom(startPoint.lng, startPoint.lat);
+    }, [startPoint?.lat, startPoint?.lng, updateStartLabelFrom]);
+
+    useEffect(() => {
+        if (endPoint) updateEndLabelFrom(endPoint.lng, endPoint.lat);
+    }, [endPoint?.lat, endPoint?.lng, updateEndLabelFrom]);
+
+    useEffect(() => {
+        waypoints.forEach((wp, idx) => {
+            if (!waypointLabels[idx] || waypointLabels[idx] === '') {
+                updateWaypointLabelFrom(idx, wp.lng, wp.lat);
+            }
+        });
+    }, [waypoints, waypointLabels, updateWaypointLabelFrom]);
+
     // Use external helper to create pin elements
     const create3DPinElement = useCallback((color: string = '#ef4444') => createPinElement(color), []);
 
@@ -352,6 +456,59 @@ export default function RoutingMap() {
         return el;
     }, []);
 
+    // Robust geolocation handler for "Pin my location"
+    const handlePinMyLocation = useCallback(async () => {
+        try {
+            if (typeof window === 'undefined') return;
+            if (!('geolocation' in navigator)) {
+                alert('Thiết bị hoặc trình duyệt không hỗ trợ định vị (Geolocation).');
+                return;
+            }
+
+            // Geolocation requires secure context on most browsers (HTTPS or localhost)
+            const isLocalhost = typeof location !== 'undefined' && /^(localhost|127\.0\.0\.1|::1)$/i.test(location.hostname);
+            const isSecure = (typeof window !== 'undefined' && (window.isSecureContext || location.protocol === 'https:')) || isLocalhost;
+            if (!isSecure) {
+                alert('Trình duyệt chặn định vị vì trang chưa chạy HTTPS. Hãy dùng https (hoặc localhost khi dev).');
+                return;
+            }
+
+            // Check permission if available (optional)
+            try {
+                const perm = await (navigator as any)?.permissions?.query?.({ name: 'geolocation' as PermissionName });
+                if (perm && perm.state === 'denied') {
+                    alert('Bạn đã chặn quyền truy cập vị trí cho trang này. Hãy mở cài đặt quyền vị trí của trình duyệt và cho phép lại.');
+                    return;
+                }
+            } catch { /* ignore if Permissions API not available */ }
+
+            const getPosition = () => new Promise<GeolocationPosition>((resolve, reject) => {
+                navigator.geolocation.getCurrentPosition(resolve, reject, {
+                    enableHighAccuracy: true,
+                    timeout: 12000,
+                    maximumAge: 1000,
+                });
+            });
+
+            const pos = await getPosition();
+            const { latitude, longitude } = pos.coords;
+            set3DPinAt(longitude, latitude, '#22c55e');
+        } catch (err: any) {
+            // Map standard geolocation error codes to friendly messages
+            const code = err?.code;
+            const msg = err?.message;
+            if (code === 1) {
+                alert('Truy cập vị trí bị từ chối. Hãy cho phép trang truy cập vị trí trong cài đặt trình duyệt.');
+            } else if (code === 2) {
+                alert('Không xác định được vị trí. Hãy kiểm tra GPS hoặc thử lại sau.');
+            } else if (code === 3) {
+                alert('Lấy vị trí quá thời gian cho phép. Hãy thử lại khi tín hiệu tốt hơn.');
+            } else {
+                alert(`Không thể lấy vị trí: ${msg || 'Lỗi không xác định.'}`);
+            }
+        }
+    }, [set3DPinAt]);
+
     const ensureVehicleMarker = useCallback((lng: number, lat: number) => {
         if (!mapRef.current) return;
         if (!vehicleMarkerRef.current) {
@@ -375,11 +532,13 @@ export default function RoutingMap() {
                 rotateBy(10);
             } else if (e.key === 'r' || e.key === 'R') {
                 resetNorth();
+            } else if (e.key === 'Escape') {
+                endPicking();
             }
         };
         window.addEventListener('keydown', onKey);
         return () => window.removeEventListener('keydown', onKey);
-    }, [rotateBy, resetNorth]);
+    }, [rotateBy, resetNorth, endPicking]);
 
     const toggle3D = useCallback(() => {
         setIs3D((prev) => {
@@ -421,6 +580,7 @@ export default function RoutingMap() {
                 .on('dragend', () => {
                     const ll = startMarkerRef.current!.getLngLat();
                     setStartPoint({ lat: ll.lat, lng: ll.lng });
+                    updateStartLabelFrom(ll.lng, ll.lat);
                 });
         } else if (startMarkerRef.current && startPoint) {
             startMarkerRef.current.setLngLat(toLngLat(startPoint) as any);
@@ -432,11 +592,12 @@ export default function RoutingMap() {
                 .on('dragend', () => {
                     const ll = endMarkerRef.current!.getLngLat();
                     setEndPoint({ lat: ll.lat, lng: ll.lng });
+                    updateEndLabelFrom(ll.lng, ll.lat);
                 });
         } else if (endMarkerRef.current && endPoint) {
             endMarkerRef.current.setLngLat(toLngLat(endPoint) as any);
         }
-    }, [mapReady, startPoint, endPoint]);
+    }, [mapReady, startPoint, endPoint, updateStartLabelFrom, updateEndLabelFrom]);
 
     useEffect(() => {
         if (!mapReady || !mapRef.current) return;
@@ -890,23 +1051,7 @@ export default function RoutingMap() {
                 onRotateLeft={() => rotateBy(-10)}
                 onRotateRight={() => rotateBy(10)}
                 onResetNorth={resetNorth}
-                onPinMyLocation={() => {
-                    if (!('geolocation' in navigator)) {
-                        alert('Thiết bị không hỗ trợ định vị.');
-                        return;
-                    }
-                    navigator.geolocation.getCurrentPosition(
-                        (pos) => {
-                            const { latitude, longitude } = pos.coords;
-                            set3DPinAt(longitude, latitude, '#22c55e');
-                        },
-                        (err) => {
-                            console.warn('Geolocation error', err);
-                            alert('Không thể lấy vị trí hiện tại.');
-                        },
-                        { enableHighAccuracy: true, timeout: 8000, maximumAge: 1000 }
-                    );
-                }}
+                onPinMyLocation={handlePinMyLocation}
                 onPinStep={() => {
                     let target: [number, number] | null = null;
                     const step = activeStepIdx != null ? instructions[activeStepIdx] : null;
@@ -943,6 +1088,18 @@ export default function RoutingMap() {
                 activeStepIdx={activeStepIdx}
                 focusStep={focusStep}
                 onStartGuidance={() => { if (!instructions || instructions.length === 0) return; setGuidanceMode(true); focusStep(0); }}
+                startPoint={startPoint}
+                endPoint={endPoint}
+                waypoints={waypoints}
+                startLabel={startLabel}
+                endLabel={endLabel}
+                waypointLabels={waypointLabels}
+                setStartPoint={setStartPoint}
+                setEndPoint={setEndPoint}
+                setWaypoints={setWaypoints}
+                onPickStart={() => beginPicking({ type: 'start' })}
+                onPickEnd={() => beginPicking({ type: 'end' })}
+                onPickWaypoint={(index: number) => beginPicking({ type: 'via', index })}
             />
             <SimulationPanel
                 simPlaying={simPlaying}

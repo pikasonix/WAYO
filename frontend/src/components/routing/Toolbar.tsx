@@ -31,7 +31,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
 }) => {
     return (
         <div className="p-3 border-b text-sm bg-white flex items-center gap-3">
-            <b>Mapbox</b>
+            <h1 className="text-lg font-semibold">Chỉ đường</h1>
             <button onClick={onToggle3D} className="ml-auto inline-flex items-center rounded bg-blue-600 text-white px-3 py-1 text-xs hover:bg-blue-700" title="Bật/tắt chế độ 3D (địa hình + tòa nhà)">{is3D ? "Tắt 3D" : "Bật 3D"}</button>
             <button onClick={onToggleAngle} className="inline-flex items-center rounded bg-slate-700 text-white px-3 py-1 text-xs hover:bg-slate-800" title="Chuyển đổi góc nhìn (nghiêng 3D ↔ nhìn từ trên xuống)">{angled ? "Nhìn từ trên xuống" : "Góc nhìn 3D"}</button>
             <div className="ml-2 flex items-center gap-2">
