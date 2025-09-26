@@ -35,6 +35,7 @@ type ControlsPanelProps = {
     onPickStart: () => void;
     onPickEnd: () => void;
     onPickWaypoint: (index: number) => void;
+    focusOnCoordinate: (coords: { lat: number; lng: number }) => void;
 };
 
 // Move SortableWaypoint outside of ControlsPanel
@@ -61,12 +62,13 @@ const SortableWaypoint: React.FC<{
     geocodeSuggest: (query: string) => Promise<Suggestion[]>;
     waypointTimerRef: React.MutableRefObject<Record<number, number>>;
     waypointPendingQueryRef: React.MutableRefObject<Record<number, string>>;
+    focusOnCoordinate: (coords: { lat: number; lng: number }) => void;
 }> = React.memo(({
     idStr, idx, txt, waypoints, setWaypoints, waypointTexts, setWaypointTexts,
     isEditingWaypoint, setIsEditingWaypoint, loadingWaypoint, setLoadingWaypoint,
     waypointSugs, setWaypointSugs, onPickWaypoint, onRemoveWaypoint, onSearchWaypoint,
     onChangeWaypointText, dragOverId, isDragging, geocodeSuggest,
-    waypointTimerRef, waypointPendingQueryRef
+    waypointTimerRef, waypointPendingQueryRef, focusOnCoordinate
 }) => {
     const { attributes, listeners, setNodeRef, transform, transition, isDragging: itemIsDragging } = useSortable({
         id: idStr,
@@ -167,10 +169,13 @@ const SortableWaypoint: React.FC<{
                 {loadingWaypoint[idx] ? '…' : <MapPin size={14} />}
             </button>
             <button
-                className="shrink-0 bg-teal-600 hover:bg-teal-700 text-white text-xs px-2.5 py-1.5 rounded"
-                onClick={() => onSearchWaypoint(idx)}
-                title="Tìm điểm trung gian"
-                disabled={loadingWaypoint[idx]}
+                className="shrink-0 bg-teal-600 hover:bg-teal-700 text-white text-xs px-2.5 py-1.5 rounded disabled:opacity-50 disabled:cursor-not-allowed"
+                onClick={() => {
+                    const point = waypoints[idx];
+                    if (point) focusOnCoordinate(point);
+                }}
+                title="Phóng tới vị trí điểm trung gian"
+                disabled={loadingWaypoint[idx] || !waypoints[idx]}
             >
                 {loadingWaypoint[idx] ? 'Đang tìm…' : 'Tìm'}
             </button>
@@ -204,10 +209,13 @@ const SortableStartRow: React.FC<{
     geocodeSuggest: (query: string) => Promise<Suggestion[]>;
     startTimerRef: React.MutableRefObject<number | null>;
     startPendingQueryRef: React.MutableRefObject<string>;
+    currentPoint: { lat: number; lng: number } | null;
+    focusOnCoordinate: (coords: { lat: number; lng: number }) => void;
 }> = React.memo(({
     startText, setStartText, setStartPoint, isEditingStart, setIsEditingStart,
     loadingStart, startSugs, setStartSugs, onPickStart, onSearchStart,
-    dragOverId, isDragging, geocodeSuggest, startTimerRef, startPendingQueryRef
+    dragOverId, isDragging, geocodeSuggest, startTimerRef, startPendingQueryRef,
+    currentPoint, focusOnCoordinate
 }) => {
     const { attributes, listeners, setNodeRef, transform, transition, isDragging: itemIsDragging } = useSortable({
         id: 'start',
@@ -303,10 +311,10 @@ const SortableStartRow: React.FC<{
                 {loadingStart ? '…' : <MapPin size={14} />}
             </button>
             <button
-                className="shrink-0 bg-teal-600 hover:bg-teal-700 text-white text-xs px-2.5 py-1.5 rounded"
-                onClick={onSearchStart}
-                title="Tìm điểm đầu"
-                disabled={loadingStart}
+                className="shrink-0 bg-teal-600 hover:bg-teal-700 text-white text-xs px-2.5 py-1.5 rounded disabled:opacity-50 disabled:cursor-not-allowed"
+                onClick={() => { if (currentPoint) focusOnCoordinate(currentPoint); }}
+                title="Phóng tới điểm bắt đầu"
+                disabled={loadingStart || !currentPoint}
             >
                 {loadingStart ? 'Đang tìm…' : 'Tìm'}
             </button>
@@ -334,10 +342,13 @@ const SortableEndRow: React.FC<{
     geocodeSuggest: (query: string) => Promise<Suggestion[]>;
     endTimerRef: React.MutableRefObject<number | null>;
     endPendingQueryRef: React.MutableRefObject<string>;
+    currentPoint: { lat: number; lng: number } | null;
+    focusOnCoordinate: (coords: { lat: number; lng: number }) => void;
 }> = React.memo(({
     endText, setEndText, setEndPoint, isEditingEnd, setIsEditingEnd,
     loadingEnd, endSugs, setEndSugs, onPickEnd, onSearchEnd,
-    dragOverId, isDragging, waypoints, geocodeSuggest, endTimerRef, endPendingQueryRef
+    dragOverId, isDragging, waypoints, geocodeSuggest, endTimerRef, endPendingQueryRef,
+    currentPoint, focusOnCoordinate
 }) => {
     const { attributes, listeners, setNodeRef, transform, transition, isDragging: itemIsDragging } = useSortable({
         id: 'end',
@@ -433,10 +444,10 @@ const SortableEndRow: React.FC<{
                 {loadingEnd ? '…' : <MapPin size={14} />}
             </button>
             <button
-                className="shrink-0 bg-teal-600 hover:bg-teal-700 text-white text-xs px-2.5 py-1.5 rounded"
-                onClick={onSearchEnd}
-                title="Tìm điểm cuối"
-                disabled={loadingEnd}
+                className="shrink-0 bg-teal-600 hover:bg-teal-700 text-white text-xs px-2.5 py-1.5 rounded disabled:opacity-50 disabled:cursor-not-allowed"
+                onClick={() => { if (currentPoint) focusOnCoordinate(currentPoint); }}
+                title="Phóng tới điểm kết thúc"
+                disabled={loadingEnd || !currentPoint}
             >
                 {loadingEnd ? 'Đang tìm…' : 'Tìm'}
             </button>
@@ -451,7 +462,7 @@ export const ControlsPanel: React.FC<ControlsPanelProps> = ({
     activeStepIdx, focusStep, onStartGuidance,
     startPoint, endPoint, waypoints, startLabel, endLabel, waypointLabels, setWaypointLabels,
     setStartPoint, setEndPoint, setWaypoints,
-    onPickStart, onPickEnd, onPickWaypoint,
+    onPickStart, onPickEnd, onPickWaypoint, focusOnCoordinate,
 }) => {
     // Local input texts for search boxes
     const [startText, setStartText] = useState<string>("");
@@ -871,6 +882,8 @@ export const ControlsPanel: React.FC<ControlsPanelProps> = ({
                                 geocodeSuggest={geocodeSuggest}
                                 startTimerRef={startTimerRef}
                                 startPendingQueryRef={startPendingQueryRef}
+                                currentPoint={startPoint}
+                                focusOnCoordinate={focusOnCoordinate}
                             />
                             {waypointIds.map((id, idx) => (
                                 <SortableWaypoint
@@ -897,6 +910,7 @@ export const ControlsPanel: React.FC<ControlsPanelProps> = ({
                                     geocodeSuggest={geocodeSuggest}
                                     waypointTimerRef={waypointTimerRef}
                                     waypointPendingQueryRef={waypointPendingQueryRef}
+                                    focusOnCoordinate={focusOnCoordinate}
                                 />
                             ))}
                             <SortableEndRow
@@ -916,6 +930,8 @@ export const ControlsPanel: React.FC<ControlsPanelProps> = ({
                                 geocodeSuggest={geocodeSuggest}
                                 endTimerRef={endTimerRef}
                                 endPendingQueryRef={endPendingQueryRef}
+                                currentPoint={endPoint}
+                                focusOnCoordinate={focusOnCoordinate}
                             />
                         </SortableContext>
                     </DndContext>

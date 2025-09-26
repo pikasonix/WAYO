@@ -21,7 +21,7 @@ export default function RoutingMap() {
     const [error, setError] = useState<string | null>(null);
     const [is3D, setIs3D] = useState(true);
     const [angled, setAngled] = useState(true);
-    const [courseUp, setCourseUp] = useState(true);
+    const [courseUp] = useState(true);
     // Routing state
     type Profile = 'driving' | 'walking' | 'cycling';
     const routeSourceId = 'route-line';
@@ -58,9 +58,8 @@ export default function RoutingMap() {
     const [guidanceMode, setGuidanceMode] = useState<boolean>(false);
     const [headingDeg, setHeadingDeg] = useState<number>(0);
     const [keepZoom, setKeepZoom] = useState<boolean>(false);
-    const [smoothTurns, setSmoothTurns] = useState<boolean>(true);
+    const smoothTurns = true;
     const maxTurnRateDegPerSecRef = useRef<number>(60);
-    const [alwaysShowPopup, setAlwaysShowPopup] = useState<boolean>(true);
     const [showAllPopups, setShowAllPopups] = useState<boolean>(true);
     // Display labels for picked/search points
     const [startLabel, setStartLabel] = useState<string>("");
@@ -504,6 +503,14 @@ export default function RoutingMap() {
         mapRef.current.easeTo({ center: [lng, lat], zoom: targetZoom, pitch: targetPitch, duration: 600 });
     }, [create3DPinElement, keepZoom]);
 
+    const focusOnCoordinate = useCallback((coords: { lat: number; lng: number }) => {
+        if (!mapRef.current) return;
+        const { lat, lng } = coords;
+        const currentZoom = mapRef.current.getZoom();
+        const targetZoom = keepZoom ? currentZoom : Math.max(currentZoom, 16.5);
+        mapRef.current.easeTo({ center: [lng, lat], zoom: targetZoom, duration: 450 });
+    }, [keepZoom]);
+
     const createVehicleElement = useCallback((color: string = '#0ea5e9') => {
         const el = document.createElement('div');
         el.style.width = '36px';
@@ -598,7 +605,6 @@ export default function RoutingMap() {
     useEffect(() => {
         const onKey = (e: KeyboardEvent) => {
             if (e.target && (e.target as HTMLElement).tagName === 'INPUT') return;
-            if (e.repeat) return;
             if (e.key === 'q' || e.key === 'Q') {
                 rotateBy(-10);
             } else if (e.key === 'e' || e.key === 'E') {
@@ -1201,7 +1207,6 @@ export default function RoutingMap() {
             }
             return;
         }
-        if (!alwaysShowPopup) return;
         if (showAllPopups) return;
         if (!mapReady || !mapRef.current) return;
         if (!instructions || instructions.length === 0) return;
@@ -1226,7 +1231,7 @@ export default function RoutingMap() {
                 .setHTML(html)
                 .addTo(mapRef.current!);
         } catch { }
-    }, [alwaysShowPopup, activeStepIdx, instructions, mapReady, showAllPopups, simPlaying]);
+    }, [activeStepIdx, instructions, mapReady, showAllPopups, simPlaying]);
 
     useEffect(() => {
         if (!guidanceMode || activeStepIdx == null || !instructions[activeStepIdx]) return;
@@ -1291,43 +1296,16 @@ export default function RoutingMap() {
             <Toolbar
                 is3D={is3D}
                 angled={angled}
-                courseUp={courseUp}
                 keepZoom={keepZoom}
-                smoothTurns={smoothTurns}
-                alwaysShowPopup={alwaysShowPopup}
                 showAllPopups={showAllPopups}
                 onToggle3D={toggle3D}
                 onToggleAngle={toggleAngle}
-                onToggleCourseUp={() => setCourseUp(v => !v)}
                 onToggleKeepZoom={() => setKeepZoom(v => !v)}
-                onToggleSmoothTurns={() => setSmoothTurns(v => !v)}
-                onToggleAlwaysShowPopup={() => setAlwaysShowPopup(v => !v)}
                 onToggleShowAllPopups={() => setShowAllPopups(v => !v)}
                 onRotateLeft={() => rotateBy(-10)}
                 onRotateRight={() => rotateBy(10)}
                 onResetNorth={resetNorth}
                 onPinMyLocation={handlePinMyLocation}
-                onPinStep={() => {
-                    let target: [number, number] | null = null;
-                    const step = activeStepIdx != null ? instructions[activeStepIdx] : null;
-                    const stepCoords: [number, number][] | undefined = step?.geometry?.coordinates;
-                    if (stepCoords && stepCoords.length > 0) {
-                        target = stepCoords[0] as [number, number];
-                    } else {
-                        const routeGeom: any = routeDataRef.current?.features?.[0]?.geometry;
-                        const routeCoords: [number, number][] | undefined = routeGeom?.coordinates;
-                        if (routeCoords && routeCoords.length > 0) {
-                            target = routeCoords[0] as [number, number];
-                        } else if (startPoint) {
-                            target = [startPoint.lng, startPoint.lat];
-                        }
-                    }
-                    if (target) {
-                        set3DPinAt(target[0], target[1], '#3b82f6');
-                    } else {
-                        alert('Chưa có tuyến đường/bước để đặt pin.');
-                    }
-                }}
             />
             {error ? (
                 <div className="p-4 text-red-600 text-sm">{error}</div>
@@ -1356,6 +1334,7 @@ export default function RoutingMap() {
                 onPickStart={() => beginPicking({ type: 'start' })}
                 onPickEnd={() => beginPicking({ type: 'end' })}
                 onPickWaypoint={(index: number) => beginPicking({ type: 'via', index })}
+                focusOnCoordinate={focusOnCoordinate}
             />
             <SimulationPanel
                 simPlaying={simPlaying}
