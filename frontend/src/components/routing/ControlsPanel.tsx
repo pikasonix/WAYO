@@ -1,10 +1,16 @@
 "use client";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { DndContext, closestCenter, DragEndEvent, DragOverEvent } from '@dnd-kit/core';
+import { SortableContext, useSortable, verticalListSortingStrategy, arrayMove } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
+import { GripVertical, MapPin, Plus, ArrowUpDown, X } from 'lucide-react';
 import { formatDuration, formatDistance, formatInstructionVI } from './formatters';
 import config from '@/config/config';
 import { getGeocoder, type Suggestion } from '@/services/geocoding';
 
 type Profile = 'driving' | 'walking' | 'cycling';
+
+const SUGGEST_DEBOUNCE_MS = 600;
 
 type ControlsPanelProps = {
     profile: Profile;
@@ -23,6 +29,7 @@ type ControlsPanelProps = {
     startLabel?: string;
     endLabel?: string;
     waypointLabels?: string[];
+    setWaypointLabels: React.Dispatch<React.SetStateAction<string[]>>;
     setStartPoint: (p: { lat: number; lng: number } | null) => void;
     setEndPoint: (p: { lat: number; lng: number } | null) => void;
     setWaypoints: (wps: Array<{ lat: number; lng: number }>) => void;
@@ -35,13 +42,16 @@ type ControlsPanelProps = {
 export const ControlsPanel: React.FC<ControlsPanelProps> = ({
     profile, setProfile, isRouting, calculateRoute, instructions, routeSummary,
     activeStepIdx, focusStep, onStartGuidance,
-    startPoint, endPoint, waypoints, startLabel, endLabel, waypointLabels, setStartPoint, setEndPoint, setWaypoints,
+    startPoint, endPoint, waypoints, startLabel, endLabel, waypointLabels, setWaypointLabels, setStartPoint, setEndPoint, setWaypoints,
     onPickStart, onPickEnd, onPickWaypoint,
 }) => {
     // Local input texts for search boxes
     const [startText, setStartText] = useState<string>("");
     const [endText, setEndText] = useState<string>("");
     const [waypointTexts, setWaypointTexts] = useState<string[]>([]);
+    // Stable ids for waypoints to avoid key/index issues when reordering
+    const [waypointIds, setWaypointIds] = useState<string[]>([]);
+    const wpIdCounter = useRef(0);
     // Editing guards to avoid overwriting while user is typing
     const [isEditingStart, setIsEditingStart] = useState<boolean>(false);
     const [isEditingEnd, setIsEditingEnd] = useState<boolean>(false);
@@ -54,48 +64,108 @@ export const ControlsPanel: React.FC<ControlsPanelProps> = ({
     const [startSugs, setStartSugs] = useState<Suggestion[]>([]);
     const [endSugs, setEndSugs] = useState<Suggestion[]>([]);
     const [waypointSugs, setWaypointSugs] = useState<Record<number, Suggestion[]>>({});
+    // Enhanced drag state tracking
+    const [dragOverId, setDragOverId] = useState<string | null>(null);
+    const [isDragging, setIsDragging] = useState<boolean>(false);
     // Debounce timers
     const startTimerRef = useRef<number | null>(null);
     const endTimerRef = useRef<number | null>(null);
     const waypointTimerRef = useRef<Record<number, number>>({});
+    const startPendingQueryRef = useRef<string>("");
+    const endPendingQueryRef = useRef<string>("");
+    const waypointPendingQueryRef = useRef<Record<number, string>>({});
+    const prevWaypointLabelsRef = useRef<string[]>([]);
+
+    useEffect(() => {
+        return () => {
+            if (startTimerRef.current) window.clearTimeout(startTimerRef.current);
+            if (endTimerRef.current) window.clearTimeout(endTimerRef.current);
+            Object.values(waypointTimerRef.current).forEach((id) => window.clearTimeout(id));
+        };
+    }, []);
+
+    // Ensure waypointIds length tracks waypointTexts length and is stable
+    useEffect(() => {
+        setWaypointIds((prev) => {
+            const needed = waypointTexts.length;
+            const current = prev.length;
+
+            if (needed === current) return prev;
+
+            if (needed > current) {
+                // Add new IDs
+                const newIds = [...prev];
+                for (let i = current; i < needed; i++) {
+                    newIds.push(`wp-${++wpIdCounter.current}`);
+                }
+                return newIds;
+            } else {
+                // Remove excess IDs
+                return prev.slice(0, needed);
+            }
+        });
+    }, [waypointTexts.length]);
+
+    // (Optional) Debug logging removed for cleaner production output
 
     // Initialize texts from coords when coming from map or first mount
     useEffect(() => {
         if (isEditingStart) return;
-        if (startLabel && startLabel.trim()) {
+        if (startLabel && startLabel.trim() && startText !== startLabel) {
             setStartText(startLabel);
             return;
         }
-        if (startPoint) setStartText(`${startPoint.lat.toFixed(6)}, ${startPoint.lng.toFixed(6)}`);
-    }, [startPoint?.lat, startPoint?.lng, startLabel, isEditingStart]);
-    useEffect(() => {
-        if (isEditingEnd) return; // separate input, but keep symmetry
-        if (startLabel && startLabel.trim()) setStartText(startLabel);
-    }, [startLabel, isEditingEnd]);
+        if (startPoint && !startText) {
+            const coords = `${startPoint.lat.toFixed(6)}, ${startPoint.lng.toFixed(6)}`;
+            if (startText !== coords) setStartText(coords);
+        }
+    }, [startPoint?.lat, startPoint?.lng, startLabel, isEditingStart, startText]);
     useEffect(() => {
         if (isEditingEnd) return;
-        if (endLabel && endLabel.trim()) {
+        if (endLabel && endLabel.trim() && endText !== endLabel) {
             setEndText(endLabel);
             return;
         }
-        if (endPoint) setEndText(`${endPoint.lat.toFixed(6)}, ${endPoint.lng.toFixed(6)}`);
-    }, [endPoint?.lat, endPoint?.lng, endLabel, isEditingEnd]);
+        if (endPoint && !endText) {
+            const coords = `${endPoint.lat.toFixed(6)}, ${endPoint.lng.toFixed(6)}`;
+            if (endText !== coords) setEndText(coords);
+        }
+    }, [endPoint?.lat, endPoint?.lng, endLabel, isEditingEnd, endText]);
     useEffect(() => {
-        if (isEditingStart) return; // separate input
-        if (endLabel && endLabel.trim()) setEndText(endLabel);
-    }, [endLabel, isEditingStart]);
-    useEffect(() => {
+        const previousLabels = prevWaypointLabelsRef.current;
         setWaypointTexts((prev) => {
-            const next: string[] = [];
+            const next: string[] = new Array(waypoints.length).fill("");
             for (let i = 0; i < waypoints.length; i++) {
-                const label = waypointLabels?.[i];
                 const editing = isEditingWaypoint[i];
-                if (!editing && label && label.trim()) next[i] = label;
-                else if (!editing && waypoints[i]) next[i] = `${waypoints[i].lat.toFixed(6)}, ${waypoints[i].lng.toFixed(6)}`;
-                else next[i] = prev[i] ?? "";
+                const current = prev[i] ?? "";
+                const label = waypointLabels?.[i]?.trim();
+                const prevLabelRaw = previousLabels[i];
+                const prevLabel = prevLabelRaw ? prevLabelRaw.trim() : "";
+                const coords = waypoints[i];
+                const fallback = coords ? `${coords.lat.toFixed(6)}, ${coords.lng.toFixed(6)}` : "";
+
+                if (editing) {
+                    next[i] = current;
+                    continue;
+                }
+
+                if (label) {
+                    const labelChanged = label !== prevLabel;
+                    if (!current || current === fallback || (labelChanged && (!current || current === prevLabel))) {
+                        next[i] = label;
+                        continue;
+                    }
+                }
+
+                if (!current) {
+                    next[i] = fallback;
+                } else {
+                    next[i] = current;
+                }
             }
             return next;
         });
+        prevWaypointLabelsRef.current = (waypointLabels ?? []).slice();
     }, [waypoints, waypointLabels, isEditingWaypoint]);
 
     // keep editing and loading arrays sized to waypoint count
@@ -136,8 +206,10 @@ export const ControlsPanel: React.FC<ControlsPanelProps> = ({
     }, [geocoder]);
 
     const geocodeSuggest = useCallback(async (query: string): Promise<Suggestion[]> => {
+        const trimmed = query.trim();
+        if (trimmed.length < 3) return [];
         try {
-            return await geocoder.suggest(query);
+            return await geocoder.suggest(trimmed);
         } catch { return []; }
     }, [geocoder]);
 
@@ -174,12 +246,303 @@ export const ControlsPanel: React.FC<ControlsPanelProps> = ({
 
     const handleRemoveWaypoint = useCallback((idx: number) => {
         setWaypointTexts(prev => prev.filter((_, i) => i !== idx));
+        // Use current waypoints array (from props) to avoid implicit any in functional setter
         setWaypoints(waypoints.filter((_, i) => i !== idx));
+        setWaypointIds(prev => prev.filter((_, i) => i !== idx));
+
+        // Clean up related states
+        setIsEditingWaypoint(prev => prev.filter((_, i) => i !== idx));
+        setLoadingWaypoint(prev => prev.filter((_, i) => i !== idx));
+        setWaypointSugs(prev => {
+            const newSugs = { ...prev } as Record<number, Suggestion[]>;
+            delete newSugs[idx];
+            // Shift down the indices
+            const shifted: Record<number, Suggestion[]> = {};
+            Object.keys(newSugs).forEach((key) => {
+                const numKey = parseInt(key);
+                if (numKey > idx) {
+                    shifted[numKey - 1] = newSugs[numKey];
+                } else if (numKey < idx) {
+                    shifted[numKey] = newSugs[numKey];
+                }
+            });
+            return shifted;
+        });
+        const pending = { ...waypointPendingQueryRef.current };
+        delete pending[idx];
+        const shiftedPending: Record<number, string> = {};
+        Object.keys(pending).forEach((key) => {
+            const numKey = parseInt(key, 10);
+            if (numKey > idx) shiftedPending[numKey - 1] = pending[numKey];
+            else if (numKey < idx) shiftedPending[numKey] = pending[numKey];
+        });
+        waypointPendingQueryRef.current = shiftedPending;
     }, [setWaypoints, waypoints]);
 
     const handleChangeWaypointText = useCallback((idx: number, val: string) => {
         setWaypointTexts(prev => prev.map((t, i) => i === idx ? val : t));
     }, []);
+
+    const handleDragStart = useCallback(() => { setIsDragging(true); }, []);
+    const handleDragOver = useCallback((event: DragOverEvent) => {
+        const { over } = event; setDragOverId(over ? String(over.id) : null);
+    }, []);
+    const handleDragEnd = useCallback((event: DragEndEvent) => {
+        const { active, over } = event;
+        setIsDragging(false);
+        setDragOverId(null);
+        if (!over || active.id === over.id) return;
+
+        const items = ['start', ...waypointIds, 'end'];
+        const activeId = String(active.id);
+        const overId = String(over.id);
+        const oldIndex = items.indexOf(activeId);
+        const newIndex = items.indexOf(overId);
+        if (oldIndex === -1 || newIndex === -1) return;
+
+        // Create a full dataset before reordering
+        const fullDataSet = [
+            { id: 'start', point: startPoint, text: startText },
+            ...waypointIds.map((id, i) => ({ id, point: waypoints[i], text: waypointTexts[i] })),
+            { id: 'end', point: endPoint, text: endText },
+        ];
+
+        // Reorder the full dataset
+        const [movedItem] = fullDataSet.splice(oldIndex, 1);
+        fullDataSet.splice(newIndex, 0, movedItem);
+
+        // Extract new start, end, and waypoints from the reordered dataset
+        const newStart = fullDataSet[0];
+        const newEnd = fullDataSet[fullDataSet.length - 1];
+        const newWaypointsData = fullDataSet.slice(1, -1);
+
+        const newWaypointIds = newWaypointsData.map(d => (d.id === 'start' || d.id === 'end') ? `wp-${++wpIdCounter.current}` : d.id);
+        const newWaypointPoints = newWaypointsData.map(d => d.point).filter(p => p) as Array<{ lat: number; lng: number }>;
+        const newWaypointTexts = newWaypointsData.map(d => d.text || '');
+
+        // Apply new state
+        setStartPoint(newStart.point || null);
+        setStartText(newStart.text || '');
+        setEndPoint(newEnd.point || null);
+        setEndText(newEnd.text || '');
+        setWaypoints(newWaypointPoints);
+        setWaypointTexts(newWaypointTexts);
+        setWaypointIds(newWaypointIds);
+        setWaypointLabels(newWaypointTexts);
+
+        // Clear transient UI state
+        setWaypointSugs({});
+        setIsEditingWaypoint(prev => prev.map(() => false));
+        setIsEditingStart(false);
+        setIsEditingEnd(false);
+        setStartSugs([]);
+        setEndSugs([]);
+    }, [startPoint, endPoint, startText, endText, waypointIds, waypointTexts, waypoints, setStartPoint, setEndPoint, setWaypoints, setWaypointLabels]);
+
+    const SortableWaypoint: React.FC<{ idStr: string; idx: number; txt: string }> = ({ idStr, idx, txt }) => {
+        const { attributes, listeners, setNodeRef, transform, transition, isDragging: itemIsDragging } = useSortable({ id: idStr, disabled: !!isEditingWaypoint[idx] });
+        const style: React.CSSProperties = {
+            transform: CSS.Transform.toString(transform),
+            transition,
+            opacity: itemIsDragging ? 0.5 : 1,
+            zIndex: itemIsDragging ? 1000 : 1,
+        };
+        const isDropTarget = dragOverId === idStr && isDragging;
+        return (
+            <div
+                ref={setNodeRef}
+                style={style}
+                className={`flex items-center gap-2 transition-all duration-200 ${isDropTarget ? 'bg-blue-50 border border-blue-300 rounded-lg shadow-md' : ''} ${itemIsDragging ? 'shadow-lg' : ''}`}
+            >
+                <button
+                    className={`p-1 cursor-grab active:cursor-grabbing rounded hover:bg-gray-100 transition-colors ${itemIsDragging ? 'bg-blue-100' : 'text-gray-400 hover:text-gray-600'}`}
+                    title="Kéo để sắp xếp"
+                    {...attributes}
+                    {...listeners}
+                >
+                    <GripVertical size={16} />
+                </button>
+                <div className="w-6 h-6 rounded-full bg-gray-400 text-white text-xs font-bold flex items-center justify-center" title={`Trung gian ${idx + 2}`}>{idx + 2}</div>
+                <div className="relative flex-1">
+                    <input
+                        className="w-full border rounded px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-teal-500"
+                        placeholder="Điểm trung gian hoặc Lat,Lng"
+                        value={txt}
+                        onFocus={() => setIsEditingWaypoint(prev => prev.map((v, i) => i === idx ? true : v))}
+                        onBlur={() => setIsEditingWaypoint(prev => prev.map((v, i) => i === idx ? false : v))}
+                        onChange={(e) => {
+                            const val = e.target.value;
+                            handleChangeWaypointText(idx, val);
+                            const trimmed = val.trim();
+                            waypointPendingQueryRef.current[idx] = trimmed;
+                            const prevT = waypointTimerRef.current[idx];
+                            if (prevT) window.clearTimeout(prevT);
+                            waypointTimerRef.current[idx] = window.setTimeout(async () => {
+                                const query = waypointPendingQueryRef.current[idx];
+                                if (!query || query.length < 2) { setWaypointSugs((m) => ({ ...m, [idx]: [] })); return; }
+                                const sugs = await geocodeSuggest(query);
+                                if (waypointPendingQueryRef.current[idx] === query) {
+                                    setWaypointSugs((m) => ({ ...m, [idx]: sugs }));
+                                }
+                            }, SUGGEST_DEBOUNCE_MS);
+                        }}
+                        onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void handleSearchWaypoint(idx); } }}
+                    />
+                    {(waypointSugs[idx]?.length || 0) > 0 && (
+                        <div className="absolute top-full left-0 right-20 mt-1 bg-white border border-gray-200 rounded shadow-lg z-[500] max-h-56 overflow-auto">
+                            {(waypointSugs[idx] || []).map((s) => (
+                                <button
+                                    key={s.id}
+                                    type="button"
+                                    className="block w-full text-left px-3 py-2 text-xs hover:bg-gray-50"
+                                    onMouseDown={(ev) => ev.preventDefault()}
+                                    onClick={() => {
+                                        const next = [...waypoints];
+                                        next[idx] = { lat: s.center[1], lng: s.center[0] };
+                                        setWaypoints(next);
+                                        setWaypointTexts(prev => prev.map((t, i) => i === idx ? s.place_name : t));
+                                        setIsEditingWaypoint(prev => prev.map((v, i) => i === idx ? false : v));
+                                        setWaypointSugs((m) => ({ ...m, [idx]: [] }));
+                                    }}
+                                >{s.place_name}</button>
+                            ))}
+                        </div>
+                    )}
+                </div>
+                <button
+                    className="shrink-0 border border-gray-300 text-gray-700 hover:bg-gray-50 text-xs px-2.5 py-1.5 rounded flex items-center gap-1"
+                    onClick={() => { setIsEditingWaypoint(prev => prev.map((v, i) => i === idx ? false : v)); onPickWaypoint(idx); }}
+                    title="Chọn trên bản đồ"
+                    disabled={loadingWaypoint[idx]}
+                >{loadingWaypoint[idx] ? '…' : <MapPin size={14} />}</button>
+                <button
+                    className="shrink-0 bg-teal-600 hover:bg-teal-700 text-white text-xs px-2.5 py-1.5 rounded"
+                    onClick={() => handleSearchWaypoint(idx)}
+                    title="Tìm điểm trung gian"
+                    disabled={loadingWaypoint[idx]}
+                >{loadingWaypoint[idx] ? 'Đang tìm…' : 'Tìm'}</button>
+                <button
+                    className="shrink-0 bg-red-600 hover:bg-red-700 text-white text-xs px-2.5 py-1.5 rounded flex items-center"
+                    onClick={() => handleRemoveWaypoint(idx)}
+                    title="Xóa điểm này"
+                >
+                    <X size={14} />
+                </button>
+            </div>
+        );
+    };
+
+    const SortableStartRow: React.FC = () => {
+        const { attributes, listeners, setNodeRef, transform, transition, isDragging: itemIsDragging } = useSortable({ id: 'start', disabled: isEditingStart });
+        const style: React.CSSProperties = { transform: CSS.Transform.toString(transform), transition, opacity: itemIsDragging ? 0.5 : 1, zIndex: itemIsDragging ? 1000 : 1 };
+        const isDropTarget = dragOverId === 'start' && isDragging;
+        return (
+            <div ref={setNodeRef} style={style} className={`flex items-center gap-2 transition-all duration-200 ${isDropTarget ? 'bg-blue-50 border border-blue-300 rounded-lg shadow-md' : ''} ${itemIsDragging ? 'shadow-lg' : ''}`}>
+                <button
+                    className={`p-1 cursor-grab active:cursor-grabbing rounded hover:bg-gray-100 transition-colors ${itemIsDragging ? 'bg-blue-100' : 'text-gray-400 hover:text-gray-600'}`}
+                    title="Kéo để sắp xếp"
+                    {...attributes}
+                    {...listeners}
+                >
+                    <GripVertical size={16} />
+                </button>
+                <div className="w-6 h-6 rounded-full bg-blue-600 text-white text-xs font-bold flex items-center justify-center" title="Điểm đầu">1</div>
+                <div className="relative flex-1">
+                    <input
+                        className="w-full border rounded px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-teal-500"
+                        placeholder="Nhập địa chỉ hoặc Lat,Lng (ví dụ: 21.0278, 105.8342)"
+                        value={startText}
+                        onFocus={() => setIsEditingStart(true)}
+                        onBlur={() => setIsEditingStart(false)}
+                        onChange={(e) => {
+                            const val = e.target.value;
+                            setStartText(val);
+                            const trimmed = val.trim();
+                            startPendingQueryRef.current = trimmed;
+                            if (startTimerRef.current) window.clearTimeout(startTimerRef.current);
+                            startTimerRef.current = window.setTimeout(async () => {
+                                const query = startPendingQueryRef.current;
+                                if (!query || query.length < 2) { setStartSugs([]); return; }
+                                const sugs = await geocodeSuggest(query);
+                                if (startPendingQueryRef.current === query) setStartSugs(sugs);
+                            }, SUGGEST_DEBOUNCE_MS);
+                        }}
+                        onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void handleSearchStart(); } }}
+                    />
+                    {startSugs.length > 0 && (
+                        <div className="absolute top-full left-0 right-16 mt-1 bg-white border border-gray-200 rounded shadow-lg z-[500] max-h-56 overflow-auto">
+                            {startSugs.map((s) => (
+                                <button key={s.id} type="button" className="block w-full text-left px-3 py-2 text-xs hover:bg-gray-50" onMouseDown={(ev) => ev.preventDefault()} onClick={() => {
+                                    setStartPoint({ lat: s.center[1], lng: s.center[0] });
+                                    setStartText(s.place_name);
+                                    setIsEditingStart(false);
+                                    setStartSugs([]);
+                                }}>{s.place_name}</button>
+                            ))}
+                        </div>
+                    )}
+                </div>
+                <button className="shrink-0 border border-gray-300 text-gray-700 hover:bg-gray-50 text-xs px-2.5 py-1.5 rounded flex items-center gap-1" onClick={() => { setIsEditingStart(false); onPickStart(); }} title="Chọn trên bản đồ" disabled={loadingStart}>{loadingStart ? '…' : <MapPin size={14} />}</button>
+                <button className="shrink-0 bg-teal-600 hover:bg-teal-700 text-white text-xs px-2.5 py-1.5 rounded" onClick={handleSearchStart} title="Tìm điểm đầu" disabled={loadingStart}>{loadingStart ? 'Đang tìm…' : 'Tìm'}</button>
+            </div>
+        );
+    };
+
+    const SortableEndRow: React.FC = () => {
+        const { attributes, listeners, setNodeRef, transform, transition, isDragging: itemIsDragging } = useSortable({ id: 'end', disabled: isEditingEnd });
+        const style: React.CSSProperties = { transform: CSS.Transform.toString(transform), transition, opacity: itemIsDragging ? 0.5 : 1, zIndex: itemIsDragging ? 1000 : 1 };
+        const isDropTarget = dragOverId === 'end' && isDragging;
+        return (
+            <div ref={setNodeRef} style={style} className={`flex items-center gap-2 transition-all duration-200 ${isDropTarget ? 'bg-blue-50 border border-blue-300 rounded-lg shadow-md' : ''} ${itemIsDragging ? 'shadow-lg' : ''}`}>
+                <button
+                    className={`p-1 cursor-grab active:cursor-grabbing rounded hover:bg-gray-100 transition-colors ${itemIsDragging ? 'bg-blue-100' : 'text-gray-400 hover:text-gray-600'}`}
+                    title="Kéo để sắp xếp"
+                    {...attributes}
+                    {...listeners}
+                >
+                    <GripVertical size={16} />
+                </button>
+                <div className="w-6 h-6 rounded-full bg-red-600 text-white text-xs font-bold flex items-center justify-center" title="Điểm cuối">{waypoints.length + 2}</div>
+                <div className="relative flex-1">
+                    <input
+                        className="w-full border rounded px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-teal-500"
+                        placeholder="Nhập địa chỉ hoặc Lat,Lng"
+                        value={endText}
+                        onFocus={() => setIsEditingEnd(true)}
+                        onBlur={() => setIsEditingEnd(false)}
+                        onChange={(e) => {
+                            const val = e.target.value;
+                            setEndText(val);
+                            const trimmed = val.trim();
+                            endPendingQueryRef.current = trimmed;
+                            if (endTimerRef.current) window.clearTimeout(endTimerRef.current);
+                            endTimerRef.current = window.setTimeout(async () => {
+                                const query = endPendingQueryRef.current;
+                                if (!query || query.length < 2) { setEndSugs([]); return; }
+                                const sugs = await geocodeSuggest(query);
+                                if (endPendingQueryRef.current === query) setEndSugs(sugs);
+                            }, SUGGEST_DEBOUNCE_MS);
+                        }}
+                        onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void handleSearchEnd(); } }}
+                    />
+                    {endSugs.length > 0 && (
+                        <div className="absolute top-full left-0 right-16 mt-1 bg-white border border-gray-200 rounded shadow-lg z-[500] max-h-56 overflow-auto">
+                            {endSugs.map((s) => (
+                                <button key={s.id} type="button" className="block w-full text-left px-3 py-2 text-xs hover:bg-gray-50" onMouseDown={(ev) => ev.preventDefault()} onClick={() => {
+                                    setEndPoint({ lat: s.center[1], lng: s.center[0] });
+                                    setEndText(s.place_name);
+                                    setIsEditingEnd(false);
+                                    setEndSugs([]);
+                                }}>{s.place_name}</button>
+                            ))}
+                        </div>
+                    )}
+                </div>
+                <button className="shrink-0 border border-gray-300 text-gray-700 hover:bg-gray-50 text-xs px-2.5 py-1.5 rounded flex items-center gap-1" onClick={() => { setIsEditingEnd(false); onPickEnd(); }} title="Chọn trên bản đồ" disabled={loadingEnd}>{loadingEnd ? '…' : <MapPin size={14} />}</button>
+                <button className="shrink-0 bg-teal-600 hover:bg-teal-700 text-white text-xs px-2.5 py-1.5 rounded" onClick={handleSearchEnd} title="Tìm điểm cuối" disabled={loadingEnd}>{loadingEnd ? 'Đang tìm…' : 'Tìm'}</button>
+            </div>
+        );
+    };
 
     const handleSearchWaypoint = useCallback(async (idx: number) => {
         if (loadingWaypoint[idx]) return;
@@ -203,191 +566,71 @@ export const ControlsPanel: React.FC<ControlsPanelProps> = ({
         setIsEditingWaypoint(prev => prev.map((v, i) => i === idx ? false : v));
         setLoadingWaypoint(prev => prev.map((v, i) => i === idx ? false : v));
     }, [waypointTexts, waypoints, setWaypoints, geocodeForward, loadingWaypoint]);
+
+    // Swap start/end and reverse waypoints order
+    const handleReverseRoute = useCallback(() => {
+        // Points
+        const newStart = endPoint ? { ...endPoint } : null;
+        const newEnd = startPoint ? { ...startPoint } : null;
+        const newWaypoints = [...waypoints].reverse();
+
+        setStartPoint(newStart);
+        setEndPoint(newEnd);
+        setWaypoints(newWaypoints);
+
+        // Texts
+        setStartText(endText);
+        setEndText(startText);
+        setWaypointTexts((prev) => [...prev].reverse());
+        // Keep waypoint id order in sync with texts after reverse
+        setWaypointIds((prev) => [...prev].reverse());
+
+        // Reset editing/suggestions for clarity
+        setIsEditingStart(false);
+        setIsEditingEnd(false);
+        setIsEditingWaypoint((prev) => prev.map(() => false));
+        setStartSugs([]);
+        setEndSugs([]);
+        setWaypointSugs({});
+    }, [startPoint, endPoint, waypoints, startText, endText, setStartPoint, setEndPoint, setWaypoints]);
     return (
         <div className="absolute top-30 left-3 z-[360] bg-white/95 backdrop-blur rounded-lg shadow border border-gray-200 p-3 w-[380px]">
             {/* Start/End/Waypoints section */}
             <div className="mb-3">
                 <div className="flex items-center justify-between mb-2">
                     <div className="text-sm font-semibold">Điểm đi/đến</div>
-                    <button
-                        className="text-xs text-blue-600 hover:underline"
-                        title="Thêm điểm trung gian"
-                        onClick={handleAddWaypoint}
-                    >+ Thêm điểm đến</button>
+                    <div className="flex items-center gap-3">
+                        <button
+                            className="text-xs text-gray-700 hover:underline flex items-center gap-1"
+                            title="Đảo chiều đi/đến"
+                            onClick={handleReverseRoute}
+                        >
+                            <ArrowUpDown size={12} /> Đảo chiều
+                        </button>
+                        <button
+                            className="text-xs text-blue-600 hover:underline flex items-center gap-1"
+                            title="Thêm điểm trung gian"
+                            onClick={handleAddWaypoint}
+                        >
+                            <Plus size={12} /> Thêm điểm đến
+                        </button>
+                    </div>
                 </div>
                 <div className="space-y-2">
-                    {/* Start */}
-                    <div className="flex items-center gap-2">
-                        <div className="w-4 h-4 rounded-full border-2 border-blue-600" title="Điểm đầu" />
-                        <input
-                            className="flex-1 border rounded px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-teal-500"
-                            placeholder="Nhập địa chỉ hoặc Lat,Lng (ví dụ: 21.0278, 105.8342)"
-                            value={startText}
-                            onFocus={() => setIsEditingStart(true)}
-                            onBlur={() => {/* keep text; only clear editing on search */ }}
-                            onChange={(e) => {
-                                const val = e.target.value;
-                                setStartText(val);
-                                if (startTimerRef.current) window.clearTimeout(startTimerRef.current);
-                                startTimerRef.current = window.setTimeout(async () => {
-                                    if (val.trim().length < 2) { setStartSugs([]); return; }
-                                    const sugs = await geocodeSuggest(val);
-                                    setStartSugs(sugs);
-                                }, 300);
-                            }}
-                            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void handleSearchStart(); } }}
-                        />
-                        {/* Start suggestions */}
-                        {startSugs.length > 0 && (
-                            <div className="absolute mt-24 left-0 w-[calc(100%-100px)] bg-white border border-gray-200 rounded shadow z-[400] max-h-56 overflow-auto">
-                                {startSugs.map((s) => (
-                                    <button
-                                        key={s.id}
-                                        type="button"
-                                        className="block w-full text-left px-3 py-2 text-xs hover:bg-gray-50"
-                                        onMouseDown={(ev) => ev.preventDefault()}
-                                        onClick={() => {
-                                            setStartPoint({ lat: s.center[1], lng: s.center[0] });
-                                            setStartText(s.place_name);
-                                            setIsEditingStart(false);
-                                            setStartSugs([]);
-                                        }}
-                                    >{s.place_name}</button>
-                                ))}
-                            </div>
-                        )}
-                        <button
-                            className="shrink-0 border border-gray-300 text-gray-700 hover:bg-gray-50 text-xs px-2.5 py-1.5 rounded"
-                            onClick={() => { setIsEditingStart(false); onPickStart(); }}
-                            title="Chọn trên bản đồ"
-                            disabled={loadingStart}
-                        >{loadingStart ? '…' : '📍'}</button>
-                        <button
-                            className="shrink-0 bg-teal-600 hover:bg-teal-700 text-white text-xs px-2.5 py-1.5 rounded"
-                            onClick={handleSearchStart}
-                            title="Tìm điểm đầu"
-                            disabled={loadingStart}
-                        >{loadingStart ? 'Đang tìm…' : 'Tìm'}</button>
-                    </div>
-                    {/* Waypoints */}
-                    {waypointTexts.map((txt, idx) => (
-                        <div key={idx} className="flex items-center gap-2">
-                            <div className="w-4 h-4 rounded-full border-2 border-gray-400" title={`Trung gian ${idx + 1}`} />
-                            <input
-                                className="flex-1 border rounded px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-teal-500"
-                                placeholder="Điểm trung gian hoặc Lat,Lng"
-                                value={txt}
-                                onFocus={() => setIsEditingWaypoint(prev => prev.map((v, i) => i === idx ? true : v))}
-                                onBlur={() => {/* keep text; only clear editing on search */ }}
-                                onChange={(e) => {
-                                    const val = e.target.value;
-                                    handleChangeWaypointText(idx, val);
-                                    const prev = waypointTimerRef.current[idx];
-                                    if (prev) window.clearTimeout(prev);
-                                    waypointTimerRef.current[idx] = window.setTimeout(async () => {
-                                        if (val.trim().length < 2) {
-                                            setWaypointSugs((m) => ({ ...m, [idx]: [] }));
-                                            return;
-                                        }
-                                        const sugs = await geocodeSuggest(val);
-                                        setWaypointSugs((m) => ({ ...m, [idx]: sugs }));
-                                    }, 300);
-                                }}
-                                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void handleSearchWaypoint(idx); } }}
-                            />
-                            {/* Waypoint suggestions */}
-                            {(waypointSugs[idx]?.length || 0) > 0 && (
-                                <div className="absolute mt-24 left-0 w-[calc(100%-140px)] bg-white border border-gray-200 rounded shadow z-[400] max-h-56 overflow-auto">
-                                    {(waypointSugs[idx] || []).map((s) => (
-                                        <button
-                                            key={s.id}
-                                            type="button"
-                                            className="block w-full text-left px-3 py-2 text-xs hover:bg-gray-50"
-                                            onMouseDown={(ev) => ev.preventDefault()}
-                                            onClick={() => {
-                                                const next = [...waypoints];
-                                                next[idx] = { lat: s.center[1], lng: s.center[0] };
-                                                setWaypoints(next);
-                                                setWaypointTexts(prev => prev.map((t, i) => i === idx ? s.place_name : t));
-                                                setIsEditingWaypoint(prev => prev.map((v, i) => i === idx ? false : v));
-                                                setWaypointSugs((m) => ({ ...m, [idx]: [] }));
-                                            }}
-                                        >{s.place_name}</button>
-                                    ))}
-                                </div>
-                            )}
-                            <button
-                                className="shrink-0 border border-gray-300 text-gray-700 hover:bg-gray-50 text-xs px-2.5 py-1.5 rounded"
-                                onClick={() => { setIsEditingWaypoint(prev => prev.map((v, i) => i === idx ? false : v)); onPickWaypoint(idx); }}
-                                title="Chọn trên bản đồ"
-                                disabled={loadingWaypoint[idx]}
-                            >{loadingWaypoint[idx] ? '…' : '📍'}</button>
-                            <button
-                                className="shrink-0 bg-teal-600 hover:bg-teal-700 text-white text-xs px-2.5 py-1.5 rounded"
-                                onClick={() => handleSearchWaypoint(idx)}
-                                title="Tìm điểm trung gian"
-                                disabled={loadingWaypoint[idx]}
-                            >{loadingWaypoint[idx] ? 'Đang tìm…' : 'Tìm'}</button>
-                            <button
-                                className="shrink-0 bg-red-600 hover:bg-red-700 text-white text-xs px-2.5 py-1.5 rounded"
-                                onClick={() => handleRemoveWaypoint(idx)}
-                                title="Xóa điểm này"
-                            >X</button>
-                        </div>
-                    ))}
-                    {/* End */}
-                    <div className="flex items-center gap-2">
-                        <div className="w-4 h-4 rounded-full border-2 border-red-600" title="Điểm cuối" />
-                        <input
-                            className="flex-1 border rounded px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-teal-500"
-                            placeholder="Nhập địa chỉ hoặc Lat,Lng"
-                            value={endText}
-                            onFocus={() => setIsEditingEnd(true)}
-                            onBlur={() => {/* keep text; only clear editing on search */ }}
-                            onChange={(e) => {
-                                const val = e.target.value;
-                                setEndText(val);
-                                if (endTimerRef.current) window.clearTimeout(endTimerRef.current);
-                                endTimerRef.current = window.setTimeout(async () => {
-                                    if (val.trim().length < 2) { setEndSugs([]); return; }
-                                    const sugs = await geocodeSuggest(val);
-                                    setEndSugs(sugs);
-                                }, 300);
-                            }}
-                            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void handleSearchEnd(); } }}
-                        />
-                        {/* End suggestions */}
-                        {endSugs.length > 0 && (
-                            <div className="absolute mt-24 left-0 w-[calc(100%-100px)] bg-white border border-gray-200 rounded shadow z-[400] max-h-56 overflow-auto">
-                                {endSugs.map((s) => (
-                                    <button
-                                        key={s.id}
-                                        type="button"
-                                        className="block w-full text-left px-3 py-2 text-xs hover:bg-gray-50"
-                                        onMouseDown={(ev) => ev.preventDefault()}
-                                        onClick={() => {
-                                            setEndPoint({ lat: s.center[1], lng: s.center[0] });
-                                            setEndText(s.place_name);
-                                            setIsEditingEnd(false);
-                                            setEndSugs([]);
-                                        }}
-                                    >{s.place_name}</button>
-                                ))}
-                            </div>
-                        )}
-                        <button
-                            className="shrink-0 border border-gray-300 text-gray-700 hover:bg-gray-50 text-xs px-2.5 py-1.5 rounded"
-                            onClick={() => { setIsEditingEnd(false); onPickEnd(); }}
-                            title="Chọn trên bản đồ"
-                            disabled={loadingEnd}
-                        >{loadingEnd ? '…' : '📍'}</button>
-                        <button
-                            className="shrink-0 bg-teal-600 hover:bg-teal-700 text-white text-xs px-2.5 py-1.5 rounded"
-                            onClick={handleSearchEnd}
-                            title="Tìm điểm cuối"
-                            disabled={loadingEnd}
-                        >{loadingEnd ? 'Đang tìm…' : 'Tìm'}</button>
-                    </div>
+                    <DndContext
+                        collisionDetection={closestCenter}
+                        onDragStart={handleDragStart}
+                        onDragOver={handleDragOver}
+                        onDragEnd={handleDragEnd}
+                    >
+                        <SortableContext items={['start', ...waypointIds, 'end']} strategy={verticalListSortingStrategy}>
+                            <SortableStartRow />
+                            {waypointIds.map((id, idx) => (
+                                <SortableWaypoint key={id} idStr={id} idx={idx} txt={waypointTexts[idx] || ''} />
+                            ))}
+                            <SortableEndRow />
+                        </SortableContext>
+                    </DndContext>
                 </div>
             </div>
             <div className="flex items-center justify-between gap-2 mb-2">
