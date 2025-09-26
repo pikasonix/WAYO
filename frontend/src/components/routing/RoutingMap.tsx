@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import mapboxgl from "mapbox-gl";
 import type { Feature, FeatureCollection, LineString, Geometry } from 'geojson';
 import "mapbox-gl/dist/mapbox-gl.css";
@@ -51,6 +51,7 @@ export default function RoutingMap() {
     const routeSourceId = 'route-line';
     const stepSourceId = 'step-line';
     const routeDataRef = useRef<FeatureCollection<Geometry> | null>(null);
+    const routesRef = useRef<any[]>([]);
     const stepDataRef = useRef<FeatureCollection<Geometry> | null>(null);
     const startMarkerRef = useRef<mapboxgl.Marker | null>(null);
     const endMarkerRef = useRef<mapboxgl.Marker | null>(null);
@@ -76,7 +77,27 @@ export default function RoutingMap() {
     const [waypoints, setWaypoints] = useState<Array<{ lat: number; lng: number }>>([]);
     const [profile, setProfile] = useState<Profile>('driving');
     const [useAdvancedOptions, setUseAdvancedOptions] = useState<boolean>(false);
+    const [routes, setRoutes] = useState<any[]>([]);
+    const [selectedRouteIdx, setSelectedRouteIdx] = useState<number>(0);
     const [instructions, setInstructions] = useState<any[]>([]);
+    const routeAlternatives = useMemo(() => {
+        return routes.map((route: any, idx: number) => {
+            const legs = Array.isArray(route?.legs) ? route.legs : [];
+            const summaryParts = legs
+                .map((leg: any) => (typeof leg?.summary === 'string' ? leg.summary : ''))
+                .filter((part: string) => part && part.trim().length > 0);
+            const summary = summaryParts.join(' → ') || (typeof route?.summary === 'string' ? route.summary : '');
+            return {
+                index: idx,
+                distanceKm: (route?.distance ?? 0) / 1000,
+                durationMin: (route?.duration ?? 0) / 60,
+                summary,
+            };
+        });
+    }, [routes]);
+    useEffect(() => {
+        routesRef.current = routes;
+    }, [routes]);
     const [isRouting, setIsRouting] = useState(false);
     const [routeSummary, setRouteSummary] = useState<{ distanceKm: number; durationMin: number } | null>(null);
     const [activeStepIdx, setActiveStepIdx] = useState<number | null>(null);
@@ -295,6 +316,7 @@ export default function RoutingMap() {
         }
     }, []);
 
+
     useEffect(() => {
         if (typeof window === "undefined") return;
         if (!mapContainer.current || mapRef.current) return;
@@ -343,11 +365,34 @@ export default function RoutingMap() {
                 if (!mapRef.current) return;
                 if (!mapRef.current.getSource(routeSourceId)) {
                     mapRef.current.addSource(routeSourceId, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+                    if (!mapRef.current.getLayer('route-alt-layer')) {
+                        mapRef.current.addLayer({
+                            id: 'route-alt-layer',
+                            type: 'line',
+                            source: routeSourceId,
+                            filter: ['==', ['get', 'isPrimary'], false],
+                            paint: {
+                                'line-color': '#94a3b8',
+                                'line-width': [
+                                    'interpolate',
+                                    ['linear'],
+                                    ['zoom'],
+                                    10, 2.8,
+                                    14, 4.5,
+                                    18, 8
+                                ],
+                                'line-opacity': 0.55,
+                                'line-dasharray': [1.2, 1.4]
+                            },
+                            layout: { 'line-cap': 'round', 'line-join': 'round' }
+                        });
+                    }
                     if (!mapRef.current.getLayer('route-line-casing')) {
                         mapRef.current.addLayer({
                             id: 'route-line-casing',
                             type: 'line',
                             source: routeSourceId,
+                            filter: ['==', ['get', 'isPrimary'], true],
                             paint: {
                                 'line-color': '#60a5fa',
                                 'line-width': [
@@ -368,6 +413,7 @@ export default function RoutingMap() {
                         id: 'route-line-layer',
                         type: 'line',
                         source: routeSourceId,
+                        filter: ['==', ['get', 'isPrimary'], true],
                         paint: {
                             'line-color': '#1d4ed8',
                             'line-width': [
@@ -561,6 +607,204 @@ export default function RoutingMap() {
         return el;
     }, []);
 
+    const applyRouteSelection = useCallback((routesData: any[], index: number, refitView: boolean = true) => {
+        if (!Array.isArray(routesData) || routesData.length === 0) {
+            routesRef.current = [];
+            setInstructions([]);
+            setRouteSummary(null);
+            routeDataRef.current = { type: 'FeatureCollection', features: [] };
+            if (mapRef.current) {
+                const src = mapRef.current.getSource(routeSourceId) as mapboxgl.GeoJSONSource | undefined;
+                src?.setData(routeDataRef.current);
+                const stepSrc = mapRef.current.getSource(stepSourceId) as mapboxgl.GeoJSONSource | undefined;
+                stepDataRef.current = { type: 'FeatureCollection', features: [] };
+                stepSrc?.setData(stepDataRef.current);
+            }
+            return;
+        }
+
+        const primaryIdx = Math.min(Math.max(index, 0), routesData.length - 1);
+        const primaryRoute = routesData[primaryIdx];
+        if (!primaryRoute) return;
+
+        routesRef.current = routesData;
+
+        const features: Feature<Geometry>[] = [];
+        routesData.forEach((routeItem: any, idx: number) => {
+            const geometry = routeItem?.geometry as LineString | undefined;
+            if (!geometry || !geometry.coordinates) return;
+            features.push({
+                type: 'Feature',
+                geometry,
+                properties: {
+                    routeIndex: idx,
+                    isPrimary: idx === primaryIdx,
+                },
+            } as Feature<LineString>);
+        });
+
+        const fc: FeatureCollection<Geometry> = { type: 'FeatureCollection', features };
+        routeDataRef.current = fc;
+        if (mapRef.current) {
+            const src = mapRef.current.getSource(routeSourceId) as mapboxgl.GeoJSONSource | undefined;
+            src?.setData(fc);
+        }
+
+        setActiveStepIdx(null);
+        const emptySteps: FeatureCollection<Geometry> = { type: 'FeatureCollection', features: [] };
+        stepDataRef.current = emptySteps;
+        if (mapRef.current) {
+            const stepSrc = mapRef.current.getSource(stepSourceId) as mapboxgl.GeoJSONSource | undefined;
+            stepSrc?.setData(emptySteps);
+        }
+
+        if (openStepPopupRef.current) { openStepPopupRef.current.remove(); openStepPopupRef.current = null; }
+        if (lastPassedPopupRef.current) { lastPassedPopupRef.current.remove(); lastPassedPopupRef.current = null; }
+        if (nextPopupRef.current) { nextPopupRef.current.remove(); nextPopupRef.current = null; }
+
+        const legs: any[] = Array.isArray(primaryRoute?.legs) ? primaryRoute.legs : [];
+        const steps = legs.flatMap((leg: any) => {
+            const legSteps: any[] = Array.isArray(leg?.steps) ? leg.steps : [];
+            const maxSpeedAnn: any[] | undefined = leg?.annotation?.maxspeed;
+            let annotationIndex = 0;
+            const getSpeedValue = (entry: any): number | null => {
+                if (!entry || typeof entry !== 'object') return null;
+                const candidates = [entry.speed, entry.speed_limit, entry.maxspeed, entry.value];
+                for (const cand of candidates) {
+                    if (typeof cand === 'number' && Number.isFinite(cand)) return cand;
+                }
+                return null;
+            };
+            const normalizeUnit = (entry: any): string | undefined => {
+                if (!entry || typeof entry !== 'object') return undefined;
+                const unit = entry.unit || entry.speed_unit || entry.maxspeed_unit;
+                return typeof unit === 'string' && unit.trim().length > 0 ? unit : undefined;
+            };
+            return legSteps.map((step: any) => {
+                const coordsForStep = step?.geometry?.coordinates;
+                const segmentCount = Array.isArray(coordsForStep) ? Math.max(0, coordsForStep.length - 1) : 0;
+                if (Array.isArray(maxSpeedAnn) && segmentCount > 0) {
+                    const slice = maxSpeedAnn.slice(annotationIndex, annotationIndex + segmentCount);
+                    annotationIndex += segmentCount;
+                    if (slice.length > 0) {
+                        const known = slice.find((entry) => entry && !entry.unknown && getSpeedValue(entry) != null);
+                        const fallback = slice.find((entry) => entry && entry.unknown);
+                        const chosen = known || fallback || null;
+                        if (chosen) {
+                            const speedValue = getSpeedValue(chosen);
+                            const speedUnit = normalizeUnit(chosen);
+                            step.speedLimit = {
+                                value: speedValue != null ? speedValue : null,
+                                unit: speedUnit,
+                                unknown: !!chosen.unknown && (speedValue == null),
+                            };
+                        }
+                    }
+                } else if (Array.isArray(maxSpeedAnn) && segmentCount > 0) {
+                    annotationIndex += segmentCount;
+                }
+                return step;
+            });
+        });
+
+        setInstructions(steps);
+        setRouteSummary({
+            distanceKm: (primaryRoute?.distance ?? 0) / 1000,
+            durationMin: (primaryRoute?.duration ?? 0) / 60,
+        });
+
+        const coords: [number, number][] = Array.isArray(primaryRoute?.geometry?.coordinates)
+            ? primaryRoute.geometry.coordinates
+            : [];
+        if (!coords || coords.length === 0) {
+            return;
+        }
+
+        const bounds = coords.reduce((b, c) => b.extend(c as any), new mapboxgl.LngLatBounds(coords[0] as any, coords[0] as any));
+        if (keepZoom) {
+            const center = bounds.getCenter();
+            mapRef.current?.easeTo({ center: [center.lng, center.lat], duration: 300 });
+        } else if (refitView) {
+            mapRef.current?.fitBounds(bounds, { padding: 40, maxZoom: 16 });
+        } else {
+            const center = bounds.getCenter();
+            mapRef.current?.easeTo({ center: [center.lng, center.lat], duration: 300 });
+        }
+
+        if (courseUpRef.current && coords.length >= 2) {
+            const [lon1, lat1] = coords[0];
+            const [lon2, lat2] = coords[1];
+            const br = computeBearing(lat1, lon1, lat2, lon2);
+            setHeadingDeg(br);
+            cameraBearingRef.current = br;
+            mapRef.current?.easeTo({ bearing: br, pitch: Math.max(mapRef.current?.getPitch() ?? 0, 50), duration: 400 });
+        }
+
+        simCoordsRef.current = coords;
+        simCumDistRef.current = [0];
+        for (let i = 1; i < coords.length; i++) {
+            const d = distanceMeters(coords[i - 1], coords[i]);
+            simCumDistRef.current.push(simCumDistRef.current[i - 1] + d);
+        }
+        simTotalDistRef.current = simCumDistRef.current[simCumDistRef.current.length - 1] ?? 0;
+        simDistRef.current = 0;
+        lastTsRef.current = null;
+        stepStartCumRef.current = [];
+        stepEndCumRef.current = [];
+        stepFirstCoordIndexRef.current = [];
+        stepMetersRef.current = [];
+        stepDurationSecRef.current = [];
+        stepCumDurEndRef.current = [];
+        routeTotalDurationSecRef.current = (primaryRoute?.duration as number) || 0;
+        {
+            let globalIndex = 0;
+            for (let si = 0; si < steps.length; si++) {
+                const geom: [number, number][] = steps[si]?.geometry?.coordinates || [];
+                if (!geom || geom.length === 0) {
+                    stepStartCumRef.current.push(simCumDistRef.current[globalIndex] || 0);
+                    stepEndCumRef.current.push(simCumDistRef.current[globalIndex] || 0);
+                    stepFirstCoordIndexRef.current.push(globalIndex);
+                    stepMetersRef.current.push(0);
+                    stepDurationSecRef.current.push((steps[si]?.duration as number) || 0);
+                    stepCumDurEndRef.current.push((stepCumDurEndRef.current[stepCumDurEndRef.current.length - 1] || 0) + ((steps[si]?.duration as number) || 0));
+                    continue;
+                }
+                const first = geom[0];
+                let found = globalIndex;
+                for (let gi = globalIndex; gi < coords.length; gi++) {
+                    if (coords[gi][0] === first[0] && coords[gi][1] === first[1]) { found = gi; break; }
+                }
+                stepFirstCoordIndexRef.current.push(found);
+                const startCum = simCumDistRef.current[found] || 0;
+                const endIdx = Math.min(coords.length - 1, found + Math.max(0, geom.length - 1));
+                const endCum = simCumDistRef.current[endIdx] || startCum;
+                stepStartCumRef.current.push(startCum);
+                stepEndCumRef.current.push(endCum);
+                stepMetersRef.current.push(Math.max(0, endCum - startCum));
+                const stepDur = (steps[si]?.duration as number) || 0;
+                stepDurationSecRef.current.push(stepDur);
+                const prevCumDur = stepCumDurEndRef.current[stepCumDurEndRef.current.length - 1] || 0;
+                stepCumDurEndRef.current.push(prevCumDur + stepDur);
+                globalIndex = endIdx;
+            }
+        }
+        nextStepIdxRef.current = 0;
+        setSimRemainingM(simTotalDistRef.current);
+        setSimEtaSec(routeTotalDurationSecRef.current);
+        setSimToNextManeuverM(Math.max(0, (stepEndCumRef.current[0] || 0) - 0));
+        const startPos = coords[0];
+        const simEl = createVehicleElement('#f59e0b');
+        if (simMarkerRef.current) simMarkerRef.current.remove();
+        if (mapRef.current) {
+            simMarkerRef.current = new mapboxgl.Marker({ element: simEl, anchor: 'center' as any })
+                .setLngLat(startPos as any)
+                .addTo(mapRef.current);
+        }
+
+        setSimPlaying(false);
+    }, [createVehicleElement, distanceMeters, keepZoom]);
+
+
     // Robust geolocation handler for "Pin my location"
     const handlePinMyLocation = useCallback(async () => {
         try {
@@ -731,6 +975,9 @@ export default function RoutingMap() {
         setIsRouting(true);
         setInstructions([]);
         setRouteSummary(null);
+        setRoutes([]);
+        routesRef.current = [];
+        setSelectedRouteIdx(0);
         const token = config.mapbox?.accessToken || (process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN as string);
         const allPoints = [startPoint, ...waypoints, endPoint];
         const coordsParam = allPoints.map((p) => `${p.lng},${p.lat}`).join(';');
@@ -819,138 +1066,14 @@ export default function RoutingMap() {
         try {
             const res = await fetch(url);
             const data = await res.json();
-            if (data?.routes?.length) {
-                const route = data.routes[0];
-                const feature: Feature<LineString> = { type: 'Feature', geometry: route.geometry as LineString, properties: {} };
-                const fc: FeatureCollection<Geometry> = { type: 'FeatureCollection', features: [feature] };
-                routeDataRef.current = fc;
-                (mapRef.current!.getSource(routeSourceId) as mapboxgl.GeoJSONSource).setData(fc);
-                const legs: any[] = Array.isArray(route.legs) ? route.legs : [];
-                const steps = legs.flatMap((leg: any) => {
-                    const legSteps: any[] = Array.isArray(leg?.steps) ? leg.steps : [];
-                    const maxSpeedAnn: any[] | undefined = leg?.annotation?.maxspeed;
-                    let annotationIndex = 0;
-                    const getSpeedValue = (entry: any): number | null => {
-                        if (!entry || typeof entry !== 'object') return null;
-                        const candidates = [entry.speed, entry.speed_limit, entry.maxspeed, entry.value];
-                        for (const cand of candidates) {
-                            if (typeof cand === 'number' && Number.isFinite(cand)) return cand;
-                        }
-                        return null;
-                    };
-                    const normalizeUnit = (entry: any): string | undefined => {
-                        if (!entry || typeof entry !== 'object') return undefined;
-                        const unit = entry.unit || entry.speed_unit || entry.maxspeed_unit;
-                        return typeof unit === 'string' && unit.trim().length > 0 ? unit : undefined;
-                    };
-                    return legSteps.map((step: any) => {
-                        const coordsForStep = step?.geometry?.coordinates;
-                        const segmentCount = Array.isArray(coordsForStep) ? Math.max(0, coordsForStep.length - 1) : 0;
-                        if (Array.isArray(maxSpeedAnn) && segmentCount > 0) {
-                            const slice = maxSpeedAnn.slice(annotationIndex, annotationIndex + segmentCount);
-                            annotationIndex += segmentCount;
-                            if (slice.length > 0) {
-                                const known = slice.find((entry) => entry && !entry.unknown && getSpeedValue(entry) != null);
-                                const fallback = slice.find((entry) => entry && entry.unknown);
-                                const chosen = known || fallback || null;
-                                if (chosen) {
-                                    const speedValue = getSpeedValue(chosen);
-                                    const speedUnit = normalizeUnit(chosen);
-                                    step.speedLimit = {
-                                        value: speedValue != null ? speedValue : null,
-                                        unit: speedUnit,
-                                        unknown: !!chosen.unknown && (speedValue == null),
-                                    };
-                                }
-                            }
-                        } else if (Array.isArray(maxSpeedAnn) && segmentCount > 0) {
-                            annotationIndex += segmentCount;
-                        }
-                        return step;
-                    });
-                });
-                setInstructions(steps);
-                setRouteSummary({ distanceKm: route.distance / 1000, durationMin: route.duration / 60 });
-                const coords: [number, number][] = route.geometry.coordinates;
-                const bounds = coords.reduce((b, c) => b.extend(c as any), new mapboxgl.LngLatBounds(coords[0] as any, coords[0] as any));
-                if (keepZoom) {
-                    const center = bounds.getCenter();
-                    mapRef.current!.easeTo({ center: [center.lng, center.lat], duration: 300 });
-                } else {
-                    mapRef.current!.fitBounds(bounds, { padding: 40, maxZoom: 16 });
-                }
-                if (courseUpRef.current && coords.length >= 2) {
-                    const [lon1, lat1] = coords[0];
-                    const [lon2, lat2] = coords[1];
-                    const br = computeBearing(lat1, lon1, lat2, lon2);
-                    setHeadingDeg(br);
-                    cameraBearingRef.current = br;
-                    mapRef.current!.easeTo({ bearing: br, pitch: Math.max(mapRef.current!.getPitch(), 50), duration: 400 });
-                }
-                // Prepare simulation track
-                simCoordsRef.current = coords;
-                simCumDistRef.current = [0];
-                for (let i = 1; i < coords.length; i++) {
-                    const d = distanceMeters(coords[i - 1], coords[i]);
-                    simCumDistRef.current.push(simCumDistRef.current[i - 1] + d);
-                }
-                simTotalDistRef.current = simCumDistRef.current[simCumDistRef.current.length - 1] ?? 0;
-                simDistRef.current = 0;
-                lastTsRef.current = null;
-                // Build step cumulative ranges, first-coord indices, per-step meters & durations
-                stepStartCumRef.current = [];
-                stepEndCumRef.current = [];
-                stepFirstCoordIndexRef.current = [];
-                stepMetersRef.current = [];
-                stepDurationSecRef.current = [];
-                stepCumDurEndRef.current = [];
-                routeTotalDurationSecRef.current = (route.duration as number) || 0;
-                {
-                    let globalIndex = 0; // index in coords array
-                    for (let si = 0; si < steps.length; si++) {
-                        const geom: [number, number][] = steps[si]?.geometry?.coordinates || [];
-                        if (!geom || geom.length === 0) {
-                            stepStartCumRef.current.push(simCumDistRef.current[globalIndex] || 0);
-                            stepEndCumRef.current.push(simCumDistRef.current[globalIndex] || 0);
-                            stepFirstCoordIndexRef.current.push(globalIndex);
-                            stepMetersRef.current.push(0);
-                            stepDurationSecRef.current.push((steps[si]?.duration as number) || 0);
-                            stepCumDurEndRef.current.push((stepCumDurEndRef.current[stepCumDurEndRef.current.length - 1] || 0) + ((steps[si]?.duration as number) || 0));
-                            continue;
-                        }
-                        const first = geom[0];
-                        // find first occurrence index of this first coord in the full coords starting at current globalIndex
-                        let found = globalIndex;
-                        for (let gi = globalIndex; gi < coords.length; gi++) {
-                            if (coords[gi][0] === first[0] && coords[gi][1] === first[1]) { found = gi; break; }
-                        }
-                        stepFirstCoordIndexRef.current.push(found);
-                        const startCum = simCumDistRef.current[found] || 0;
-                        // estimate end index: found + (geom.length - 1) but cap within coords
-                        const endIdx = Math.min(coords.length - 1, found + Math.max(0, geom.length - 1));
-                        const endCum = simCumDistRef.current[endIdx] || startCum;
-                        stepStartCumRef.current.push(startCum);
-                        stepEndCumRef.current.push(endCum);
-                        stepMetersRef.current.push(Math.max(0, endCum - startCum));
-                        const stepDur = (steps[si]?.duration as number) || 0;
-                        stepDurationSecRef.current.push(stepDur);
-                        const prevCumDur = stepCumDurEndRef.current[stepCumDurEndRef.current.length - 1] || 0;
-                        stepCumDurEndRef.current.push(prevCumDur + stepDur);
-                        globalIndex = endIdx; // advance hint
-                    }
-                }
-                nextStepIdxRef.current = 0;
-                setSimRemainingM(simTotalDistRef.current);
-                setSimEtaSec(routeTotalDurationSecRef.current); // initialize ETA from API total duration
-                // Distance to first maneuver is from position 0 to END of step 0 (next instruction)
-                setSimToNextManeuverM(Math.max(0, (stepEndCumRef.current[0] || 0) - 0));
-                const startPos = coords[0];
-                const simEl = createVehicleElement('#f59e0b');
-                if (simMarkerRef.current) simMarkerRef.current.remove();
-                simMarkerRef.current = new mapboxgl.Marker({ element: simEl, anchor: 'center' as any })
-                    .setLngLat(startPos as any)
-                    .addTo(mapRef.current!);
+            if (Array.isArray(data?.routes) && data.routes.length > 0) {
+                setRoutes(data.routes);
+                routesRef.current = data.routes;
+                setSelectedRouteIdx(0);
+                applyRouteSelection(data.routes, 0, true);
             } else {
+                setRoutes([]);
+                routesRef.current = [];
                 alert('Không tìm thấy tuyến đường.');
             }
         } catch (e) {
@@ -959,7 +1082,15 @@ export default function RoutingMap() {
         } finally {
             setIsRouting(false);
         }
-    }, [startPoint, endPoint, waypoints, profile, keepZoom, simSpeed]);
+    }, [startPoint, endPoint, waypoints, profile, keepZoom, simSpeed, applyRouteSelection]);
+
+    const handleSelectRoute = useCallback((index: number) => {
+        if (index === selectedRouteIdx) return;
+        const currentRoutes = routesRef.current.length ? routesRef.current : routes;
+        if (!Array.isArray(currentRoutes) || !currentRoutes[index]) return;
+        setSelectedRouteIdx(index);
+        applyRouteSelection(currentRoutes, index, true);
+    }, [applyRouteSelection, routes, selectedRouteIdx]);
 
     useEffect(() => {
         if (!simPlaying) {
@@ -1440,6 +1571,9 @@ export default function RoutingMap() {
                 onPickEnd={() => beginPicking({ type: 'end' })}
                 onPickWaypoint={(index: number) => beginPicking({ type: 'via', index })}
                 focusOnCoordinate={focusOnCoordinate}
+                routeAlternatives={routeAlternatives}
+                selectedRouteIndex={selectedRouteIdx}
+                onSelectRoute={handleSelectRoute}
             />
             <SimulationPanel
                 simPlaying={simPlaying}

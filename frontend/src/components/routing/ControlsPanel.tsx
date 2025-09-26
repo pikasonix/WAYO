@@ -20,6 +20,14 @@ type ControlsPanelProps = {
     calculateRoute: (advancedOptions?: AdvancedOptions) => void;
     instructions: any[];
     routeSummary: { distanceKm: number; durationMin: number } | null;
+    routeAlternatives: Array<{
+        index: number;
+        distanceKm: number;
+        durationMin: number;
+        summary: string;
+    }>;
+    selectedRouteIndex: number;
+    onSelectRoute: (idx: number) => void;
     activeStepIdx: number | null;
     focusStep: (idx: number) => void;
     onStartGuidance: () => void;
@@ -484,6 +492,7 @@ SortableEndRow.displayName = 'SortableEndRow';
 
 export const ControlsPanel: React.FC<ControlsPanelProps> = ({
     profile, setProfile, isRouting, calculateRoute, instructions, routeSummary,
+    routeAlternatives, selectedRouteIndex, onSelectRoute,
     activeStepIdx, focusStep, onStartGuidance,
     startPoint, endPoint, waypoints, startLabel, endLabel, waypointLabels, setWaypointLabels,
     setStartPoint, setEndPoint, setWaypoints,
@@ -1043,15 +1052,55 @@ export const ControlsPanel: React.FC<ControlsPanelProps> = ({
                     </div>
 
                     {routeSummary && (
-                        <div className="flex items-center gap-3 mb-4">
-                            <div className="bg-blue-50 border border-blue-200 px-3 py-2 rounded-lg flex-1">
-                                <div className="text-blue-800 font-semibold text-sm">{routeSummary.distanceKm.toFixed(1)} km</div>
-                                <div className="text-blue-600 text-xs">Khoảng cách</div>
+                        <div className="space-y-3 mb-4">
+                            <div className="flex items-center gap-3">
+                                <div className="bg-blue-50 border border-blue-200 px-3 py-2 rounded-lg flex-1">
+                                    <div className="text-blue-800 font-semibold text-sm">{routeSummary.distanceKm.toFixed(1)} km</div>
+                                    <div className="text-blue-600 text-xs">Khoảng cách</div>
+                                </div>
+                                <div className="bg-green-50 border border-green-200 px-3 py-2 rounded-lg flex-1">
+                                    <div className="text-green-800 font-semibold text-sm">{formatDuration(routeSummary.durationMin)}</div>
+                                    <div className="text-green-600 text-xs">Thời gian</div>
+                                </div>
                             </div>
-                            <div className="bg-green-50 border border-green-200 px-3 py-2 rounded-lg flex-1">
-                                <div className="text-green-800 font-semibold text-sm">{formatDuration(routeSummary.durationMin)}</div>
-                                <div className="text-green-600 text-xs">Thời gian</div>
-                            </div>
+
+                            {routeAlternatives.length > 1 && (
+                                <div className="bg-white border border-gray-200 rounded-lg p-3">
+                                    <div className="flex items-center justify-between mb-2">
+                                        <div className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Các tuyến khả dụng</div>
+                                        <div className="text-[11px] text-gray-400">Chọn tuyến tốt nhất cho bạn</div>
+                                    </div>
+                                    <div className="space-y-2">
+                                        {routeAlternatives.map((alt) => {
+                                            const isActive = alt.index === selectedRouteIndex;
+                                            return (
+                                                <button
+                                                    key={alt.index}
+                                                    className={`w-full text-left px-3 py-2 rounded-md border transition-colors flex items-center gap-3 text-xs ${isActive
+                                                        ? 'border-blue-500 bg-blue-50 text-blue-800'
+                                                        : 'border-gray-200 bg-white hover:bg-gray-50 text-gray-700'
+                                                        }`}
+                                                    onClick={() => onSelectRoute(alt.index)}
+                                                >
+                                                    <div className="flex-1 min-w-0">
+                                                        <div className="truncate font-medium">{alt.summary || `Tuyến ${alt.index + 1}`}</div>
+                                                        <div className="text-[11px] text-gray-500 flex items-center gap-3">
+                                                            <span>{alt.distanceKm.toFixed(1)} km</span>
+                                                            <span className="h-1.5 w-1.5 rounded-full bg-gray-300" />
+                                                            <span>{formatDuration(alt.durationMin)}</span>
+                                                        </div>
+                                                    </div>
+                                                    {isActive ? (
+                                                        <span className="text-[11px] font-semibold text-blue-600 uppercase">Đang chọn</span>
+                                                    ) : (
+                                                        <span className="text-[11px] text-gray-400">Chọn</span>
+                                                    )}
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     )}
 
