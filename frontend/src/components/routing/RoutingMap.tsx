@@ -319,11 +319,70 @@ export default function RoutingMap() {
                 if (!mapRef.current) return;
                 if (!mapRef.current.getSource(routeSourceId)) {
                     mapRef.current.addSource(routeSourceId, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
-                    mapRef.current.addLayer({ id: 'route-line-layer', type: 'line', source: routeSourceId, paint: { 'line-color': '#3388ff', 'line-width': 5, 'line-opacity': 0.7 }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
+                    if (!mapRef.current.getLayer('route-line-casing')) {
+                        mapRef.current.addLayer({
+                            id: 'route-line-casing',
+                            type: 'line',
+                            source: routeSourceId,
+                            paint: {
+                                'line-color': '#60a5fa',
+                                'line-width': [
+                                    'interpolate',
+                                    ['linear'],
+                                    ['zoom'],
+                                    10, 6,
+                                    14, 12,
+                                    18, 26
+                                ],
+                                'line-opacity': 0.45,
+                                'line-blur': 0.3
+                            },
+                            layout: { 'line-cap': 'round', 'line-join': 'round' }
+                        });
+                    }
+                    mapRef.current.addLayer({
+                        id: 'route-line-layer',
+                        type: 'line',
+                        source: routeSourceId,
+                        paint: {
+                            'line-color': '#1d4ed8',
+                            'line-width': [
+                                'interpolate',
+                                ['linear'],
+                                ['zoom'],
+                                10, 4.5,
+                                13, 7,
+                                16, 12,
+                                19, 24
+                            ],
+                            'line-opacity': 0.95,
+                            'line-blur': 0.15
+                        },
+                        layout: { 'line-cap': 'round', 'line-join': 'round' }
+                    });
                 }
                 if (!mapRef.current.getSource(stepSourceId)) {
                     mapRef.current.addSource(stepSourceId, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
-                    mapRef.current.addLayer({ id: 'step-line-layer', type: 'line', source: stepSourceId, paint: { 'line-color': '#ef4444', 'line-width': 6, 'line-opacity': 0.95 }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
+                    mapRef.current.addLayer({
+                        id: 'step-line-layer',
+                        type: 'line',
+                        source: stepSourceId,
+                        paint: {
+                            'line-color': '#f97316',
+                            'line-width': [
+                                'interpolate',
+                                ['linear'],
+                                ['zoom'],
+                                10, 6,
+                                13, 9,
+                                16, 14,
+                                19, 26
+                            ],
+                            'line-opacity': 0.98,
+                            'line-blur': 0.05
+                        },
+                        layout: { 'line-cap': 'round', 'line-join': 'round' }
+                    });
                 }
                 try {
                     if (routeDataRef.current) (mapRef.current.getSource(routeSourceId) as mapboxgl.GeoJSONSource)?.setData(routeDataRef.current);
@@ -645,7 +704,7 @@ export default function RoutingMap() {
         const allPoints = [startPoint, ...waypoints, endPoint];
         const coordsParam = allPoints.map((p) => `${p.lng},${p.lat}`).join(';');
         const profileMapbox = profile === 'walking' ? 'walking' : profile === 'cycling' ? 'cycling' : 'driving';
-        const url = `https://api.mapbox.com/directions/v5/mapbox/${profileMapbox}/${coordsParam}?alternatives=false&geometries=geojson&overview=full&steps=true&language=en&access_token=${encodeURIComponent(token || '')}`;
+        const url = `https://api.mapbox.com/directions/v5/mapbox/${profileMapbox}/${coordsParam}?alternatives=false&geometries=geojson&overview=full&steps=true&annotations=maxspeed&language=en&access_token=${encodeURIComponent(token || '')}`;
         try {
             const res = await fetch(url);
             const data = await res.json();
@@ -655,7 +714,50 @@ export default function RoutingMap() {
                 const fc: FeatureCollection<Geometry> = { type: 'FeatureCollection', features: [feature] };
                 routeDataRef.current = fc;
                 (mapRef.current!.getSource(routeSourceId) as mapboxgl.GeoJSONSource).setData(fc);
-                const steps = route.legs.flatMap((leg: any) => leg.steps || []);
+                const legs: any[] = Array.isArray(route.legs) ? route.legs : [];
+                const steps = legs.flatMap((leg: any) => {
+                    const legSteps: any[] = Array.isArray(leg?.steps) ? leg.steps : [];
+                    const maxSpeedAnn: any[] | undefined = leg?.annotation?.maxspeed;
+                    let annotationIndex = 0;
+                    const getSpeedValue = (entry: any): number | null => {
+                        if (!entry || typeof entry !== 'object') return null;
+                        const candidates = [entry.speed, entry.speed_limit, entry.maxspeed, entry.value];
+                        for (const cand of candidates) {
+                            if (typeof cand === 'number' && Number.isFinite(cand)) return cand;
+                        }
+                        return null;
+                    };
+                    const normalizeUnit = (entry: any): string | undefined => {
+                        if (!entry || typeof entry !== 'object') return undefined;
+                        const unit = entry.unit || entry.speed_unit || entry.maxspeed_unit;
+                        return typeof unit === 'string' && unit.trim().length > 0 ? unit : undefined;
+                    };
+                    return legSteps.map((step: any) => {
+                        const coordsForStep = step?.geometry?.coordinates;
+                        const segmentCount = Array.isArray(coordsForStep) ? Math.max(0, coordsForStep.length - 1) : 0;
+                        if (Array.isArray(maxSpeedAnn) && segmentCount > 0) {
+                            const slice = maxSpeedAnn.slice(annotationIndex, annotationIndex + segmentCount);
+                            annotationIndex += segmentCount;
+                            if (slice.length > 0) {
+                                const known = slice.find((entry) => entry && !entry.unknown && getSpeedValue(entry) != null);
+                                const fallback = slice.find((entry) => entry && entry.unknown);
+                                const chosen = known || fallback || null;
+                                if (chosen) {
+                                    const speedValue = getSpeedValue(chosen);
+                                    const speedUnit = normalizeUnit(chosen);
+                                    step.speedLimit = {
+                                        value: speedValue != null ? speedValue : null,
+                                        unit: speedUnit,
+                                        unknown: !!chosen.unknown && (speedValue == null),
+                                    };
+                                }
+                            }
+                        } else if (Array.isArray(maxSpeedAnn) && segmentCount > 0) {
+                            annotationIndex += segmentCount;
+                        }
+                        return step;
+                    });
+                });
                 setInstructions(steps);
                 setRouteSummary({ distanceKm: route.distance / 1000, durationMin: route.duration / 60 });
                 const coords: [number, number][] = route.geometry.coordinates;

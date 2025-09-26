@@ -1,5 +1,16 @@
 import { pickManeuverIcon } from './maneuvers';
 
+const escapeHtml = (value: string) => value.replace(/[&<>"']/g, (ch) => {
+    switch (ch) {
+        case '&': return '&amp;';
+        case '<': return '&lt;';
+        case '>': return '&gt;';
+        case '"': return '&quot;';
+        case "'": return '&#39;';
+        default: return ch;
+    }
+});
+
 export const formatDuration = (minutes: number) => {
     if (!minutes && minutes !== 0) return '';
     const h = Math.floor(minutes / 60);
@@ -59,13 +70,54 @@ export const renderInstructionPopupHTML = (step: any, rotateFallback: number = 0
     const text = formatInstructionVI(step);
     const { src, rotate } = pickManeuverIcon(step);
     const angle = Number.isFinite(rotate) ? rotate : rotateFallback;
-    const iconHtml = src
-        ? `<img src="${src}" width="12" height="12" style="display:block;"/>`
-        : `<svg viewBox=\"0 0 24 24\" width=\"12\" height=\"12\" style=\"transform: rotate(${angle}deg);\" fill=\"#1d4ed8\"><path d=\"M12 2 L15 10 L12 8 L9 10 Z\" /></svg>`;
+    const speedLimitRaw = step?.speedLimit && typeof step.speedLimit === 'object' ? step.speedLimit : null;
+    const explicitValue = typeof speedLimitRaw?.value === 'number' && Number.isFinite(speedLimitRaw.value) ? speedLimitRaw.value : null;
+    const inferredValue = explicitValue != null ? explicitValue : (() => {
+        const fallbackCandidates = [step?.maxSpeed, step?.max_speed, step?.speedLimitValue];
+        for (const cand of fallbackCandidates) {
+            if (typeof cand === 'number' && Number.isFinite(cand)) return cand;
+        }
+        return null;
+    })();
+    const hasSpeedValue = inferredValue != null;
+    const speedValueDisplay = hasSpeedValue ? Math.round(inferredValue) : null;
+    const normalizeUnit = (unit?: string | null): string => {
+        if (!unit || typeof unit !== 'string') return 'km/h';
+        const trimmed = unit.trim().toLowerCase().replace(/\s+/g, '');
+        if (trimmed === 'kmh' || trimmed === 'km/h' || trimmed === 'kph') return 'km/h';
+        if (trimmed === 'mph') return 'mph';
+        if (trimmed === 'm/s' || trimmed === 'ms' || trimmed === 'meterpersecond') return 'm/s';
+        return unit.trim();
+    };
+    const unitFromStep = typeof speedLimitRaw?.unit === 'string' ? speedLimitRaw.unit : (typeof step?.speedUnit === 'string' ? step.speedUnit : undefined);
+    const speedUnitDisplay = hasSpeedValue ? normalizeUnit(unitFromStep) : normalizeUnit(unitFromStep || null);
+    const speedUnknown = !!(speedLimitRaw?.unknown && !hasSpeedValue);
+    const indicatorStyleParts = [
+        `width:${hasSpeedValue || speedUnknown ? '28px' : '20px'}`,
+        `height:${hasSpeedValue || speedUnknown ? '28px' : '20px'}`,
+        'border-radius:9999px',
+        'background:#eff6ff',
+        'display:flex',
+        'align-items:center',
+        'justify-content:center',
+        'flex:0 0 auto',
+        'border:1px solid #bfdbfe'
+    ];
+    if (hasSpeedValue) {
+        indicatorStyleParts.push('flex-direction:column', 'gap:2px', 'padding:4px 2px');
+    }
+    const indicatorStyle = `${indicatorStyleParts.join('; ')};`;
+    const indicatorContent = hasSpeedValue
+        ? `<span style="font-size:13px; font-weight:700; color:#1d4ed8; line-height:1;">${speedValueDisplay}</span><span style="font-size:9px; font-weight:600; color:#1e3a8a; line-height:1; text-transform:uppercase; letter-spacing:0.3px;">${escapeHtml(speedUnitDisplay)}</span>`
+        : speedUnknown
+            ? `<span style="font-size:10px; font-weight:600; color:#1e3a8a; line-height:1;">N/A</span>`
+            : (src
+                ? `<img src="${src}" width="12" height="12" style="display:block;"/>`
+                : `<svg viewBox=\"0 0 24 24\" width=\"12\" height=\"12\" style=\"transform: rotate(${angle}deg);\" fill=\"#1d4ed8\"><path d=\"M12 2 L15 10 L12 8 L9 10 Z\" /></svg>`);
     return `
         <div style="font-family: ui-sans-serif, system-ui, -apple-system; font-size:12px; display:flex; align-items:flex-start; gap:6px;">
-            <div style="width:20px; height:20px; border-radius:9999px; background:#eff6ff; display:flex; align-items:center; justify-content:center; flex:0 0 auto; border:1px solid #bfdbfe;">
-                ${iconHtml}
+            <div style="${indicatorStyle}">
+                ${indicatorContent}
             </div>
             <div style="min-width:0;">
                 <div style="font-weight:600; color:#111827; line-height:1.2;">${text}</div>
