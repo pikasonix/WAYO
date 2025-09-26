@@ -3,12 +3,13 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { DndContext, closestCenter, DragEndEvent, DragOverEvent } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy, arrayMove } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { GripVertical, MapPin, Plus, ArrowUpDown, X } from 'lucide-react';
+import { GripVertical, MapPin, Plus, ArrowUpDown, X, ScanSearch, Navigation, Route, List, ChevronLeft, ChevronRight, Car, PersonStanding, Bike } from 'lucide-react';
 import { formatDuration, formatDistance, formatInstructionVI } from './formatters';
 import config from '@/config/config';
 import { getGeocoder, type Suggestion } from '@/services/geocoding';
+import AdvancedRoutingPanel, { type AdvancedOptions } from './AdvancedRoutingPanel';
 
-type Profile = 'driving' | 'walking' | 'cycling';
+type Profile = 'driving' | 'walking' | 'cycling' | 'driving-traffic';
 
 const SUGGEST_DEBOUNCE_MS = 600;
 
@@ -16,7 +17,7 @@ type ControlsPanelProps = {
     profile: Profile;
     setProfile: (p: Profile) => void;
     isRouting: boolean;
-    calculateRoute: () => void;
+    calculateRoute: (advancedOptions?: AdvancedOptions) => void;
     instructions: any[];
     routeSummary: { distanceKm: number; durationMin: number } | null;
     activeStepIdx: number | null;
@@ -158,7 +159,7 @@ const SortableWaypoint: React.FC<{
                 )}
             </div>
             <button
-                className="shrink-0 border border-gray-300 text-gray-700 hover:bg-gray-50 text-xs px-2.5 py-1.5 rounded flex items-center gap-1"
+                className="shrink-0 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs px-3 py-2 rounded-md flex items-center gap-1.5 font-medium transition-colors disabled:opacity-50"
                 onClick={() => {
                     setIsEditingWaypoint(prev => prev.map((v, i) => i === idx ? false : v));
                     onPickWaypoint(idx);
@@ -166,10 +167,14 @@ const SortableWaypoint: React.FC<{
                 title="Chọn trên bản đồ"
                 disabled={loadingWaypoint[idx]}
             >
-                {loadingWaypoint[idx] ? '…' : <MapPin size={14} />}
+                {loadingWaypoint[idx] ? (
+                    <span className="animate-pulse">...</span>
+                ) : (
+                    <MapPin size={14} />
+                )}
             </button>
             <button
-                className="shrink-0 bg-teal-600 hover:bg-teal-700 text-white text-xs px-2.5 py-1.5 rounded disabled:opacity-50 disabled:cursor-not-allowed"
+                className="shrink-0 bg-blue-600 hover:bg-blue-700 text-white text-xs px-3 py-2 rounded-md flex items-center gap-1.5 font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 onClick={() => {
                     const point = waypoints[idx];
                     if (point) focusOnCoordinate(point);
@@ -177,10 +182,14 @@ const SortableWaypoint: React.FC<{
                 title="Phóng tới vị trí điểm trung gian"
                 disabled={loadingWaypoint[idx] || !waypoints[idx]}
             >
-                {loadingWaypoint[idx] ? 'Đang tìm…' : 'Tìm'}
+                {loadingWaypoint[idx] ? (
+                    <span className="animate-pulse">Đang tìm...</span>
+                ) : (
+                    <><ScanSearch size={14} /> Tìm</>
+                )}
             </button>
             <button
-                className="shrink-0 bg-red-600 hover:bg-red-700 text-white text-xs px-2.5 py-1.5 rounded flex items-center"
+                className="shrink-0 bg-red-500 hover:bg-red-600 text-white text-xs px-2.5 py-2 rounded-md flex items-center transition-colors"
                 onClick={() => onRemoveWaypoint(idx)}
                 title="Xóa điểm này"
             >
@@ -300,7 +309,7 @@ const SortableStartRow: React.FC<{
                 )}
             </div>
             <button
-                className="shrink-0 border border-gray-300 text-gray-700 hover:bg-gray-50 text-xs px-2.5 py-1.5 rounded flex items-center gap-1"
+                className="shrink-0 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs px-3 py-2 rounded-md flex items-center gap-1.5 font-medium transition-colors disabled:opacity-50"
                 onClick={() => {
                     setIsEditingStart(false);
                     onPickStart();
@@ -308,15 +317,23 @@ const SortableStartRow: React.FC<{
                 title="Chọn trên bản đồ"
                 disabled={loadingStart}
             >
-                {loadingStart ? '…' : <MapPin size={14} />}
+                {loadingStart ? (
+                    <span className="animate-pulse">...</span>
+                ) : (
+                    <MapPin size={14} />
+                )}
             </button>
             <button
-                className="shrink-0 bg-teal-600 hover:bg-teal-700 text-white text-xs px-2.5 py-1.5 rounded disabled:opacity-50 disabled:cursor-not-allowed"
+                className="shrink-0 bg-blue-600 hover:bg-blue-700 text-white text-xs px-3 py-2 rounded-md flex items-center gap-1.5 font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 onClick={() => { if (currentPoint) focusOnCoordinate(currentPoint); }}
                 title="Phóng tới điểm bắt đầu"
                 disabled={loadingStart || !currentPoint}
             >
-                {loadingStart ? 'Đang tìm…' : 'Tìm'}
+                {loadingStart ? (
+                    <span className="animate-pulse">Đang tìm...</span>
+                ) : (
+                    <><ScanSearch size={14} /> Tìm</>
+                )}
             </button>
         </div>
     );
@@ -433,7 +450,7 @@ const SortableEndRow: React.FC<{
                 )}
             </div>
             <button
-                className="shrink-0 border border-gray-300 text-gray-700 hover:bg-gray-50 text-xs px-2.5 py-1.5 rounded flex items-center gap-1"
+                className="shrink-0 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs px-3 py-2 rounded-md flex items-center gap-1.5 font-medium transition-colors disabled:opacity-50"
                 onClick={() => {
                     setIsEditingEnd(false);
                     onPickEnd();
@@ -441,15 +458,23 @@ const SortableEndRow: React.FC<{
                 title="Chọn trên bản đồ"
                 disabled={loadingEnd}
             >
-                {loadingEnd ? '…' : <MapPin size={14} />}
+                {loadingEnd ? (
+                    <span className="animate-pulse">...</span>
+                ) : (
+                    <MapPin size={14} />
+                )}
             </button>
             <button
-                className="shrink-0 bg-teal-600 hover:bg-teal-700 text-white text-xs px-2.5 py-1.5 rounded disabled:opacity-50 disabled:cursor-not-allowed"
+                className="shrink-0 bg-blue-600 hover:bg-blue-700 text-white text-xs px-3 py-2 rounded-md flex items-center gap-1.5 font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 onClick={() => { if (currentPoint) focusOnCoordinate(currentPoint); }}
                 title="Phóng tới điểm kết thúc"
                 disabled={loadingEnd || !currentPoint}
             >
-                {loadingEnd ? 'Đang tìm…' : 'Tìm'}
+                {loadingEnd ? (
+                    <span className="animate-pulse">Đang tìm...</span>
+                ) : (
+                    <><ScanSearch size={14} /> Tìm</>
+                )}
             </button>
         </div>
     );
@@ -464,6 +489,8 @@ export const ControlsPanel: React.FC<ControlsPanelProps> = ({
     setStartPoint, setEndPoint, setWaypoints,
     onPickStart, onPickEnd, onPickWaypoint, focusOnCoordinate,
 }) => {
+    // Panel collapse state
+    const [isCollapsed, setIsCollapsed] = useState<boolean>(false);
     // Local input texts for search boxes
     const [startText, setStartText] = useState<string>("");
     const [endText, setEndText] = useState<string>("");
@@ -494,6 +521,10 @@ export const ControlsPanel: React.FC<ControlsPanelProps> = ({
     const endPendingQueryRef = useRef<string>("");
     const waypointPendingQueryRef = useRef<Record<number, string>>({});
     const prevWaypointLabelsRef = useRef<string[]>([]);
+
+    const handleCalculateRoute = useCallback((advancedOptions?: AdvancedOptions) => {
+        calculateRoute(advancedOptions);
+    }, [calculateRoute]);
 
     useEffect(() => {
         return () => {
@@ -836,189 +867,252 @@ export const ControlsPanel: React.FC<ControlsPanelProps> = ({
     }, [startPoint, endPoint, waypoints, startText, endText, setStartPoint, setEndPoint, setWaypoints]);
 
     return (
-        <div className="absolute top-30 left-3 z-[360] bg-white/95 backdrop-blur rounded-lg shadow border border-gray-200 p-3 w-[380px]">
-            {/* Start/End/Waypoints section */}
-            <div className="mb-3">
-                <div className="flex items-center justify-between mb-2">
-                    <div className="text-sm font-semibold">Điểm đi/đến</div>
-                    <div className="flex items-center gap-3">
-                        <button
-                            className="text-xs text-gray-700 hover:underline flex items-center gap-1"
-                            title="Đảo chiều đi/đến"
-                            onClick={handleReverseRoute}
-                        >
-                            <ArrowUpDown size={12} /> Đảo chiều
-                        </button>
-                        <button
-                            className="text-xs text-blue-600 hover:underline flex items-center gap-1"
-                            title="Thêm điểm trung gian"
-                            onClick={handleAddWaypoint}
-                        >
-                            <Plus size={12} /> Thêm điểm đến
-                        </button>
-                    </div>
-                </div>
-                <div className="space-y-2">
-                    <DndContext
-                        collisionDetection={closestCenter}
-                        onDragStart={handleDragStart}
-                        onDragOver={handleDragOver}
-                        onDragEnd={handleDragEnd}
-                    >
-                        <SortableContext items={['start', ...waypointIds, 'end']} strategy={verticalListSortingStrategy}>
-                            <SortableStartRow
-                                startText={startText}
-                                setStartText={setStartText}
-                                setStartPoint={setStartPoint}
-                                isEditingStart={isEditingStart}
-                                setIsEditingStart={setIsEditingStart}
-                                loadingStart={loadingStart}
-                                startSugs={startSugs}
-                                setStartSugs={setStartSugs}
-                                onPickStart={onPickStart}
-                                onSearchStart={handleSearchStart}
-                                dragOverId={dragOverId}
-                                isDragging={isDragging}
-                                geocodeSuggest={geocodeSuggest}
-                                startTimerRef={startTimerRef}
-                                startPendingQueryRef={startPendingQueryRef}
-                                currentPoint={startPoint}
-                                focusOnCoordinate={focusOnCoordinate}
-                            />
-                            {waypointIds.map((id, idx) => (
-                                <SortableWaypoint
-                                    key={id}
-                                    idStr={id}
-                                    idx={idx}
-                                    txt={waypointTexts[idx] || ''}
-                                    waypoints={waypoints}
-                                    setWaypoints={setWaypoints}
-                                    waypointTexts={waypointTexts}
-                                    setWaypointTexts={setWaypointTexts}
-                                    isEditingWaypoint={isEditingWaypoint}
-                                    setIsEditingWaypoint={setIsEditingWaypoint}
-                                    loadingWaypoint={loadingWaypoint}
-                                    setLoadingWaypoint={setLoadingWaypoint}
-                                    waypointSugs={waypointSugs}
-                                    setWaypointSugs={setWaypointSugs}
-                                    onPickWaypoint={onPickWaypoint}
-                                    onRemoveWaypoint={handleRemoveWaypoint}
-                                    onSearchWaypoint={handleSearchWaypoint}
-                                    onChangeWaypointText={handleChangeWaypointText}
-                                    dragOverId={dragOverId}
-                                    isDragging={isDragging}
-                                    geocodeSuggest={geocodeSuggest}
-                                    waypointTimerRef={waypointTimerRef}
-                                    waypointPendingQueryRef={waypointPendingQueryRef}
-                                    focusOnCoordinate={focusOnCoordinate}
-                                />
-                            ))}
-                            <SortableEndRow
-                                endText={endText}
-                                setEndText={setEndText}
-                                setEndPoint={setEndPoint}
-                                isEditingEnd={isEditingEnd}
-                                setIsEditingEnd={setIsEditingEnd}
-                                loadingEnd={loadingEnd}
-                                endSugs={endSugs}
-                                setEndSugs={setEndSugs}
-                                onPickEnd={onPickEnd}
-                                onSearchEnd={handleSearchEnd}
-                                dragOverId={dragOverId}
-                                isDragging={isDragging}
-                                waypoints={waypoints}
-                                geocodeSuggest={geocodeSuggest}
-                                endTimerRef={endTimerRef}
-                                endPendingQueryRef={endPendingQueryRef}
-                                currentPoint={endPoint}
-                                focusOnCoordinate={focusOnCoordinate}
-                            />
-                        </SortableContext>
-                    </DndContext>
-                </div>
-            </div>
+        <div className="absolute top-30 left-3 z-[360] flex items-start gap-2">
+            {/* Toggle Button */}
+            <button
+                onClick={() => setIsCollapsed(!isCollapsed)}
+                className="bg-white/95 backdrop-blur rounded-lg shadow border border-gray-200 p-2 hover:bg-gray-50 transition-colors"
+                title={isCollapsed ? 'Mở bảng điều khiển' : 'Thu gọn bảng điều khiển'}
+            >
+                {isCollapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
+            </button>
 
-            {/* Profile and route calculation section */}
-            <div className="flex items-center justify-between gap-2 mb-2">
-                <div className="text-sm font-semibold">Routing</div>
-                <div className="flex items-center gap-2">
-                    <label className="text-xs">Profile</label>
-                    <select
-                        className="text-xs border rounded px-2 py-1"
-                        value={profile}
-                        onChange={(e) => setProfile(e.target.value as Profile)}
-                    >
-                        <option value="driving">Driving</option>
-                        <option value="walking">Walking</option>
-                        <option value="cycling">Cycling</option>
-                    </select>
-                </div>
-            </div>
-
-            <div className="flex items-center gap-2 mb-2">
-                <button
-                    onClick={calculateRoute}
-                    disabled={isRouting}
-                    className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-medium px-3 py-1.5 rounded"
-                >
-                    {isRouting ? 'Calculating…' : 'Calculate Route'}
-                </button>
-                <button
-                    onClick={onStartGuidance}
-                    disabled={!instructions || instructions.length === 0}
-                    className="bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white text-xs font-medium px-3 py-1.5 rounded"
-                    title="Bắt đầu chỉ đường"
-                >
-                    Chỉ đường
-                </button>
-                {routeSummary && (
-                    <div className="flex items-center gap-3 text-xs">
-                        <div className="bg-blue-50 border-l-4 border-blue-400 px-2 py-1 rounded">
-                            <div className="text-blue-700 font-semibold">{routeSummary.distanceKm.toFixed(1)} km</div>
-                            <div className="text-gray-600 text-[10px]">Distance</div>
+            {/* Main Panel */}
+            {!isCollapsed && (
+                <div className="bg-white/95 backdrop-blur rounded-lg shadow border border-gray-200 p-4 w-[380px]">
+                    {/* Start/End/Waypoints section */}
+                    <div className="mb-6">
+                        <div className="flex items-center justify-between mb-3">
+                            <div className="text-sm font-semibold text-gray-800 inline-flex items-center gap-2">
+                                <MapPin size={16} className="text-blue-600" />
+                                Điểm đi/đến
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <button
+                                    className="text-xs bg-gray-100 hover:bg-gray-200 text-gray-700 px-2 py-1 rounded-md flex items-center gap-1 font-medium transition-colors"
+                                    title="Đảo chiều đi/đến"
+                                    onClick={handleReverseRoute}
+                                >
+                                    <ArrowUpDown size={12} /> Đảo chiều
+                                </button>
+                                <button
+                                    className="text-xs bg-blue-100 hover:bg-blue-200 text-blue-700 px-2 py-1 rounded-md flex items-center gap-1 font-medium transition-colors"
+                                    title="Thêm điểm trung gian"
+                                    onClick={handleAddWaypoint}
+                                >
+                                    <Plus size={12} /> Thêm điểm
+                                </button>
+                            </div>
                         </div>
-                        <div className="bg-green-50 border-l-4 border-green-400 px-2 py-1 rounded">
-                            <div className="text-green-700 font-semibold">{formatDuration(routeSummary.durationMin)}</div>
-                            <div className="text-gray-600 text-[10px]">Duration</div>
-                        </div>
-                    </div>
-                )}
-            </div>
-
-            {/* Directions section */}
-            <div className="max-h-64 overflow-auto">
-                <h3 className="text-xs font-semibold text-gray-700 mb-2">Directions</h3>
-                {(!instructions || instructions.length === 0) ? (
-                    <div className="text-[11px] text-gray-500">No instructions yet. Click "Calculate Route".</div>
-                ) : (
-                    <ol className="space-y-2">
-                        {instructions.map((step: any, index: number) => (
-                            <li
-                                key={index}
-                                className={`rounded border p-2 text-xs cursor-pointer transition-colors ${activeStepIdx === index ? 'bg-blue-50 border-blue-300' : 'bg-white border-gray-200 hover:bg-gray-50'
-                                    }`}
-                                onClick={() => focusStep(index)}
+                        <div className="space-y-2">
+                            <DndContext
+                                collisionDetection={closestCenter}
+                                onDragStart={handleDragStart}
+                                onDragOver={handleDragOver}
+                                onDragEnd={handleDragEnd}
                             >
-                                <div className="flex items-start justify-between gap-3">
-                                    <div className="flex items-start gap-2">
-                                        <span className={`inline-flex items-center justify-center w-5 h-5 rounded-full text-[10px] font-semibold ${activeStepIdx === index ? 'bg-blue-200 text-blue-900' : 'bg-gray-100 text-gray-700'
-                                            }`}>
-                                            {index + 1}
-                                        </span>
-                                        <div>
-                                            <div className="font-medium text-gray-800">{formatInstructionVI(step)}</div>
-                                            {!!step?.name && <div className="text-[10px] text-gray-500">{step.name}</div>}
-                                        </div>
-                                    </div>
-                                    <div className="text-[10px] text-gray-600 whitespace-nowrap">
-                                        {formatDistance(step?.distance || 0)}
-                                    </div>
+                                <SortableContext items={['start', ...waypointIds, 'end']} strategy={verticalListSortingStrategy}>
+                                    <SortableStartRow
+                                        startText={startText}
+                                        setStartText={setStartText}
+                                        setStartPoint={setStartPoint}
+                                        isEditingStart={isEditingStart}
+                                        setIsEditingStart={setIsEditingStart}
+                                        loadingStart={loadingStart}
+                                        startSugs={startSugs}
+                                        setStartSugs={setStartSugs}
+                                        onPickStart={onPickStart}
+                                        onSearchStart={handleSearchStart}
+                                        dragOverId={dragOverId}
+                                        isDragging={isDragging}
+                                        geocodeSuggest={geocodeSuggest}
+                                        startTimerRef={startTimerRef}
+                                        startPendingQueryRef={startPendingQueryRef}
+                                        currentPoint={startPoint}
+                                        focusOnCoordinate={focusOnCoordinate}
+                                    />
+                                    {waypointIds.map((id, idx) => (
+                                        <SortableWaypoint
+                                            key={id}
+                                            idStr={id}
+                                            idx={idx}
+                                            txt={waypointTexts[idx] || ''}
+                                            waypoints={waypoints}
+                                            setWaypoints={setWaypoints}
+                                            waypointTexts={waypointTexts}
+                                            setWaypointTexts={setWaypointTexts}
+                                            isEditingWaypoint={isEditingWaypoint}
+                                            setIsEditingWaypoint={setIsEditingWaypoint}
+                                            loadingWaypoint={loadingWaypoint}
+                                            setLoadingWaypoint={setLoadingWaypoint}
+                                            waypointSugs={waypointSugs}
+                                            setWaypointSugs={setWaypointSugs}
+                                            onPickWaypoint={onPickWaypoint}
+                                            onRemoveWaypoint={handleRemoveWaypoint}
+                                            onSearchWaypoint={handleSearchWaypoint}
+                                            onChangeWaypointText={handleChangeWaypointText}
+                                            dragOverId={dragOverId}
+                                            isDragging={isDragging}
+                                            geocodeSuggest={geocodeSuggest}
+                                            waypointTimerRef={waypointTimerRef}
+                                            waypointPendingQueryRef={waypointPendingQueryRef}
+                                            focusOnCoordinate={focusOnCoordinate}
+                                        />
+                                    ))}
+                                    <SortableEndRow
+                                        endText={endText}
+                                        setEndText={setEndText}
+                                        setEndPoint={setEndPoint}
+                                        isEditingEnd={isEditingEnd}
+                                        setIsEditingEnd={setIsEditingEnd}
+                                        loadingEnd={loadingEnd}
+                                        endSugs={endSugs}
+                                        setEndSugs={setEndSugs}
+                                        onPickEnd={onPickEnd}
+                                        onSearchEnd={handleSearchEnd}
+                                        dragOverId={dragOverId}
+                                        isDragging={isDragging}
+                                        waypoints={waypoints}
+                                        geocodeSuggest={geocodeSuggest}
+                                        endTimerRef={endTimerRef}
+                                        endPendingQueryRef={endPendingQueryRef}
+                                        currentPoint={endPoint}
+                                        focusOnCoordinate={focusOnCoordinate}
+                                    />
+                                </SortableContext>
+                            </DndContext>
+                        </div>
+                    </div>
+
+                    {/* Profile and route calculation section */}
+                    <div className="flex items-center justify-between gap-2 mb-3">
+                        <div className="flex items-center gap-1 rounded-lg border border-gray-200 bg-gray-50 px-2 py-1">
+                            <span className="inline-flex items-center gap-1 text-[11px] font-medium text-gray-600">
+                                Phương tiện
+                            </span>
+                            <button
+                                onClick={() => setProfile('driving')}
+                                className={`flex items-center gap-2 px-3 py-2 text-xs font-medium rounded-md transition-colors ${profile === 'driving'
+                                    ? 'bg-blue-600 text-white'
+                                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                                    }`}
+                                title="Ô tô (không traffic)"
+                            >
+                                <i className="fas fa-car w-3"></i>
+                            </button>
+                            <button
+                                onClick={() => setProfile('driving-traffic')}
+                                className={`flex items-center gap-1 px-2.5 py-2 text-xs font-medium rounded-md transition-colors ${profile === 'driving-traffic'
+                                    ? 'bg-green-600 text-white'
+                                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                                    }`}
+                                title="Ô tô (với traffic)"
+                            >
+                                <i className="fas fa-car w-3"></i>
+                                <i className="fas fa-circle text-[6px] text-red-500"></i>
+                            </button>
+                            <button
+                                onClick={() => setProfile('walking')}
+                                className={`flex items-center gap-2 px-3 py-2 text-xs font-medium rounded-md transition-colors ${profile === 'walking'
+                                    ? 'bg-blue-600 text-white'
+                                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                                    }`}
+                                title="Đi bộ"
+                            >
+                                <i className="fas fa-walking w-3"></i>
+                            </button>
+                            <button
+                                onClick={() => setProfile('cycling')}
+                                className={`flex items-center gap-2 px-3 py-2 text-xs font-medium rounded-md transition-colors ${profile === 'cycling'
+                                    ? 'bg-blue-600 text-white'
+                                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                                    }`}
+                                title="Xe đạp"
+                            >
+                                <i className="fas fa-bicycle w-3"></i>
+                            </button>
+                        </div>
+                        <button
+                            onClick={() => calculateRoute()}
+                            disabled={isRouting}
+                            className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-md transition-colors flex items-center gap-2"
+                        >
+                            <Route size={16} />
+                            {isRouting ? 'Đang tìm…' : 'Tìm đường'}
+                        </button>
+                    </div>
+
+                    {routeSummary && (
+                        <div className="flex items-center gap-3 mb-4">
+                            <div className="bg-blue-50 border border-blue-200 px-3 py-2 rounded-lg flex-1">
+                                <div className="text-blue-800 font-semibold text-sm">{routeSummary.distanceKm.toFixed(1)} km</div>
+                                <div className="text-blue-600 text-xs">Khoảng cách</div>
+                            </div>
+                            <div className="bg-green-50 border border-green-200 px-3 py-2 rounded-lg flex-1">
+                                <div className="text-green-800 font-semibold text-sm">{formatDuration(routeSummary.durationMin)}</div>
+                                <div className="text-green-600 text-xs">Thời gian</div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Directions section */}
+                    <div className="mt-4">
+                        <AdvancedRoutingPanel
+                            profile={profile}
+                            onCalculateRoute={handleCalculateRoute}
+                            isRouting={isRouting}
+                        />
+
+                        <div className="max-h-64 overflow-auto">
+                            <h3 className="text-sm font-semibold text-gray-800 mb-3 inline-flex items-center gap-2">
+                                <List size={16} className="text-purple-600" />
+                                Hướng dẫn từng bước
+                                <button
+                                    onClick={onStartGuidance}
+                                    disabled={!instructions || instructions.length === 0}
+                                    className="bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-md transition-colors flex items-center gap-2"
+                                    title="Bắt đầu chỉ đường"
+                                >
+                                    <Navigation size={16} />
+                                    Chỉ đường
+                                </button>
+                            </h3>
+                            {(!instructions || instructions.length === 0) ? (
+                                <div className="text-sm text-gray-500 text-center py-4 bg-gray-50 rounded-lg">
+                                    Chưa có hướng dẫn. Nhấn "Tìm đường" để bắt đầu.
                                 </div>
-                            </li>
-                        ))}
-                    </ol>
-                )}
-            </div>
+                            ) : (
+                                <ol className="space-y-2">
+                                    {instructions.map((step: any, index: number) => (
+                                        <li
+                                            key={index}
+                                            className={`rounded border p-2 text-xs cursor-pointer transition-colors ${activeStepIdx === index ? 'bg-blue-50 border-blue-300' : 'bg-white border-gray-200 hover:bg-gray-50'
+                                                }`}
+                                            onClick={() => focusStep(index)}
+                                        >
+                                            <div className="flex items-start justify-between gap-3">
+                                                <div className="flex items-start gap-2">
+                                                    <span className={`inline-flex items-center justify-center w-5 h-5 rounded-full text-[10px] font-semibold ${activeStepIdx === index ? 'bg-blue-200 text-blue-900' : 'bg-gray-100 text-gray-700'
+                                                        }`}>
+                                                        {index + 1}
+                                                    </span>
+                                                    <div>
+                                                        <div className="font-medium text-gray-800">{formatInstructionVI(step)}</div>
+                                                        {!!step?.name && <div className="text-[10px] text-gray-500">{step.name}</div>}
+                                                    </div>
+                                                </div>
+                                                <div className="text-[10px] text-gray-600 whitespace-nowrap">
+                                                    {formatDistance(step?.distance || 0)}
+                                                </div>
+                                            </div>
+                                        </li>
+                                    ))}
+                                </ol>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

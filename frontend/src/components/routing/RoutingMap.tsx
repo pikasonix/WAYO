@@ -15,6 +15,30 @@ import { ControlsPanel } from './ControlsPanel';
 import { GuidanceHUD } from './GuidanceHUD';
 import { SimulationPanel } from './SimulationPanel';
 
+type Profile = 'driving' | 'walking' | 'cycling' | 'driving-traffic';
+
+interface AdvancedOptions {
+    alternatives: boolean;
+    geometries: 'geojson' | 'polyline' | 'polyline6';
+    overview: 'full' | 'simplified' | 'false';
+    continue_straight: boolean;
+    depart_at?: string;
+    arrive_by?: string;
+    approaches: string[];
+    waypoint_snapping: string[];
+    exclude: string[];
+    annotations: string[];
+    language: string;
+    voice_instructions: boolean;
+    voice_units: 'imperial' | 'metric';
+    banner_instructions: boolean;
+    max_weight?: number;
+    max_height?: number;
+    max_width?: number;
+    max_length?: number;
+    engine?: string;
+}
+
 export default function RoutingMap() {
     const mapContainer = useRef<HTMLDivElement | null>(null);
     const mapRef = useRef<mapboxgl.Map | null>(null);
@@ -23,7 +47,7 @@ export default function RoutingMap() {
     const [angled, setAngled] = useState(true);
     const [courseUp] = useState(true);
     // Routing state
-    type Profile = 'driving' | 'walking' | 'cycling';
+    type Profile = 'driving' | 'walking' | 'cycling' | 'driving-traffic';
     const routeSourceId = 'route-line';
     const stepSourceId = 'step-line';
     const routeDataRef = useRef<FeatureCollection<Geometry> | null>(null);
@@ -51,6 +75,7 @@ export default function RoutingMap() {
     const [endPoint, setEndPoint] = useState<{ lat: number; lng: number } | null>({ lat: 21.0378, lng: 105.8442 });
     const [waypoints, setWaypoints] = useState<Array<{ lat: number; lng: number }>>([]);
     const [profile, setProfile] = useState<Profile>('driving');
+    const [useAdvancedOptions, setUseAdvancedOptions] = useState<boolean>(false);
     const [instructions, setInstructions] = useState<any[]>([]);
     const [isRouting, setIsRouting] = useState(false);
     const [routeSummary, setRouteSummary] = useState<{ distanceKm: number; durationMin: number } | null>(null);
@@ -701,7 +726,7 @@ export default function RoutingMap() {
         }
     }, [mapReady, waypoints, endPoint, create3DPinElement, updateEndLabelFrom]);
 
-    const calculateRoute = useCallback(async () => {
+    const calculateRoute = useCallback(async (advancedOptions?: AdvancedOptions) => {
         if (!startPoint || !endPoint || !mapRef.current) return;
         setIsRouting(true);
         setInstructions([]);
@@ -709,8 +734,88 @@ export default function RoutingMap() {
         const token = config.mapbox?.accessToken || (process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN as string);
         const allPoints = [startPoint, ...waypoints, endPoint];
         const coordsParam = allPoints.map((p) => `${p.lng},${p.lat}`).join(';');
-        const profileMapbox = profile === 'walking' ? 'walking' : profile === 'cycling' ? 'cycling' : 'driving';
-        const url = `https://api.mapbox.com/directions/v5/mapbox/${profileMapbox}/${coordsParam}?alternatives=false&geometries=geojson&overview=full&steps=true&annotations=maxspeed&language=en&access_token=${encodeURIComponent(token || '')}`;
+
+        const profileMapbox = profile === 'walking' ? 'walking'
+            : profile === 'cycling' ? 'cycling'
+                : profile === 'driving-traffic' ? 'driving-traffic'
+                    : 'driving';
+
+        // Build URL with advanced options
+        let url = `https://api.mapbox.com/directions/v5/mapbox/${profileMapbox}/${coordsParam}?`;
+
+        const params = new URLSearchParams();
+
+        if (advancedOptions) {
+            // Basic routing options
+            params.set('alternatives', advancedOptions.alternatives ? 'true' : 'false');
+            params.set('geometries', advancedOptions.geometries || 'geojson');
+            params.set('overview', advancedOptions.overview || 'full');
+            params.set('steps', 'true');
+            params.set('continue_straight', advancedOptions.continue_straight ? 'true' : 'false');
+
+            // Language and voice
+            params.set('language', advancedOptions.language || 'vi');
+            if (advancedOptions.voice_instructions) {
+                params.set('voice_instructions', 'true');
+                params.set('voice_units', advancedOptions.voice_units || 'metric');
+            }
+            if (advancedOptions.banner_instructions) {
+                params.set('banner_instructions', 'true');
+            }
+
+            // Exclusions
+            if (advancedOptions.exclude && advancedOptions.exclude.length > 0) {
+                params.set('exclude', advancedOptions.exclude.join(','));
+            }
+
+            // Annotations
+            if (advancedOptions.annotations && advancedOptions.annotations.length > 0) {
+                params.set('annotations', advancedOptions.annotations.join(','));
+            }
+
+            // Time-based routing
+            if (advancedOptions.depart_at) {
+                params.set('depart_at', new Date(advancedOptions.depart_at).toISOString());
+            }
+            if (advancedOptions.arrive_by) {
+                params.set('arrive_by', new Date(advancedOptions.arrive_by).toISOString());
+            }
+
+            // Vehicle specifications (for truck routing)
+            if (advancedOptions.max_weight) {
+                params.set('max_weight', (advancedOptions.max_weight * 1000).toString()); // convert to kg
+            }
+            if (advancedOptions.max_height) {
+                params.set('max_height', advancedOptions.max_height.toString());
+            }
+            if (advancedOptions.max_width) {
+                params.set('max_width', advancedOptions.max_width.toString());
+            }
+            if (advancedOptions.max_length) {
+                params.set('max_length', advancedOptions.max_length.toString());
+            }
+
+            // Engine type
+            if (advancedOptions.engine) {
+                params.set('engine', advancedOptions.engine);
+            }
+
+            // Approaches and waypoint snapping
+            if (advancedOptions.approaches && advancedOptions.approaches.length > 0) {
+                params.set('approaches', new Array(allPoints.length).fill('unrestricted').join(';'));
+            }
+        } else {
+            // Default options for basic routing
+            params.set('alternatives', 'false');
+            params.set('geometries', 'geojson');
+            params.set('overview', 'full');
+            params.set('steps', 'true');
+            params.set('annotations', 'maxspeed');
+            params.set('language', 'vi'); // Default to Vietnamese
+        }
+
+        params.set('access_token', token || '');
+        url += params.toString();
         try {
             const res = await fetch(url);
             const data = await res.json();
