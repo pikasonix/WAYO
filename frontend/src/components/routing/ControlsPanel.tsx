@@ -3,7 +3,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { DndContext, closestCenter, DragEndEvent, DragOverEvent } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy, arrayMove } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { GripVertical, MapPin, Plus, ArrowUpDown, X, ScanSearch, Navigation, Route, List, ChevronLeft, ChevronRight, Car, PersonStanding, Bike } from 'lucide-react';
+import { GripVertical, MapPin, Plus, ArrowUpDown, X, ScanSearch, Navigation, Route, List, ChevronLeft, ChevronRight, Car, PersonStanding, Bike, Clock, GaugeCircle, TrafficCone } from 'lucide-react';
 import { formatDuration, formatDistance, formatInstructionVI } from './formatters';
 import config from '@/config/config';
 import { getGeocoder, type Suggestion } from '@/services/geocoding';
@@ -13,6 +13,47 @@ type Profile = 'driving' | 'walking' | 'cycling' | 'driving-traffic';
 
 const SUGGEST_DEBOUNCE_MS = 600;
 
+export type AnnotationMetrics = {
+    durationSec?: number;
+    durationSource?: 'annotation' | 'summary';
+    distanceM?: number;
+    distanceSource?: 'annotation' | 'summary';
+    averageSpeedKmh?: number;
+    speedSource?: 'segments' | 'computed';
+    congestionLevels?: Record<string, number>;
+    congestionSampleCount?: number;
+};
+
+const CONGESTION_LABELS: Record<string, string> = {
+    severe: 'Rất nặng',
+    heavy: 'Kẹt xe',
+    moderate: 'Đông',
+    light: 'Hơi đông',
+    low: 'Thưa',
+    free: 'Thông thoáng',
+    unknown: 'Không rõ'
+};
+
+const CONGESTION_COLOR_CLASSES: Record<string, string> = {
+    severe: 'bg-red-50 text-red-700 border border-red-200',
+    heavy: 'bg-orange-50 text-orange-600 border border-orange-200',
+    moderate: 'bg-amber-50 text-amber-600 border border-amber-200',
+    light: 'bg-yellow-50 text-yellow-600 border border-yellow-200',
+    low: 'bg-lime-50 text-lime-600 border border-lime-200',
+    free: 'bg-emerald-50 text-emerald-600 border border-emerald-200',
+    unknown: 'bg-gray-100 text-gray-600 border border-gray-200'
+};
+
+const CONGESTION_ORDER: Record<string, number> = {
+    severe: 0,
+    heavy: 1,
+    moderate: 2,
+    light: 3,
+    low: 4,
+    free: 5,
+    unknown: 6
+};
+
 type ControlsPanelProps = {
     profile: Profile;
     setProfile: (p: Profile) => void;
@@ -20,6 +61,8 @@ type ControlsPanelProps = {
     calculateRoute: (advancedOptions?: AdvancedOptions) => void;
     instructions: any[];
     routeSummary: { distanceKm: number; durationMin: number } | null;
+    selectedAnnotations: string[];
+    annotationMetrics: AnnotationMetrics;
     routeAlternatives: Array<{
         index: number;
         distanceKm: number;
@@ -492,7 +535,7 @@ SortableEndRow.displayName = 'SortableEndRow';
 
 export const ControlsPanel: React.FC<ControlsPanelProps> = ({
     profile, setProfile, isRouting, calculateRoute, instructions, routeSummary,
-    routeAlternatives, selectedRouteIndex, onSelectRoute,
+    selectedAnnotations, annotationMetrics, routeAlternatives, selectedRouteIndex, onSelectRoute,
     activeStepIdx, focusStep, onStartGuidance,
     startPoint, endPoint, waypoints, startLabel, endLabel, waypointLabels, setWaypointLabels,
     setStartPoint, setEndPoint, setWaypoints,
@@ -530,6 +573,92 @@ export const ControlsPanel: React.FC<ControlsPanelProps> = ({
     const endPendingQueryRef = useRef<string>("");
     const waypointPendingQueryRef = useRef<Record<number, string>>({});
     const prevWaypointLabelsRef = useRef<string[]>([]);
+
+    const normalizedSelectedAnnotations = useMemo(() => {
+        if (!Array.isArray(selectedAnnotations) || selectedAnnotations.length === 0) {
+            return ['duration', 'distance', 'speed'];
+        }
+        const unique = Array.from(new Set(selectedAnnotations.map((val) => (typeof val === 'string' ? val : '')).filter(Boolean)));
+        return unique.length > 0 ? unique : ['duration', 'distance', 'speed'];
+    }, [selectedAnnotations]);
+
+    const {
+        durationSec,
+        durationSource,
+        distanceM,
+        distanceSource,
+        averageSpeedKmh,
+        speedSource,
+        congestionLevels,
+        congestionSampleCount
+    } = annotationMetrics || {};
+
+    const wantsDuration = normalizedSelectedAnnotations.includes('duration');
+    const wantsDistance = normalizedSelectedAnnotations.includes('distance');
+    const wantsSpeed = normalizedSelectedAnnotations.includes('speed');
+    const wantsCongestion = normalizedSelectedAnnotations.includes('congestion');
+
+    const sortedCongestionEntries = useMemo(() => {
+        if (!wantsCongestion || !congestionLevels) return [] as Array<[string, number]>;
+        return Object.entries(congestionLevels)
+            .map(([level, count]) => [level.toLowerCase(), count] as [string, number])
+            .sort((a, b) => (CONGESTION_ORDER[a[0]] ?? 99) - (CONGESTION_ORDER[b[0]] ?? 99));
+    }, [wantsCongestion, congestionLevels]);
+
+    const durationMinutes = useMemo(() => {
+        if (!routeSummary || !wantsDuration) return null;
+        if (typeof durationSec === 'number' && Number.isFinite(durationSec)) return durationSec / 60;
+        return routeSummary.durationMin;
+    }, [routeSummary, wantsDuration, durationSec]);
+
+    const distanceMeters = useMemo(() => {
+        if (!routeSummary || !wantsDistance) return null;
+        if (typeof distanceM === 'number' && Number.isFinite(distanceM)) return distanceM;
+        return routeSummary.distanceKm * 1000;
+    }, [routeSummary, wantsDistance, distanceM]);
+
+    const speedValueKmh = useMemo(() => {
+        if (!routeSummary || !wantsSpeed) return null;
+        if (typeof averageSpeedKmh === 'number' && Number.isFinite(averageSpeedKmh)) return averageSpeedKmh;
+        const distanceVal = typeof distanceM === 'number' && Number.isFinite(distanceM) ? distanceM : routeSummary.distanceKm * 1000;
+        const durationVal = typeof durationSec === 'number' && Number.isFinite(durationSec) ? durationSec : routeSummary.durationMin * 60;
+        if (!durationVal || durationVal <= 0) return null;
+        const derived = (distanceVal / durationVal) * 3.6;
+        return Number.isFinite(derived) && derived > 0 ? derived : null;
+    }, [routeSummary, wantsSpeed, averageSpeedKmh, distanceM, durationSec]);
+
+    const totalCongestionSegments = useMemo(() => {
+        if (!wantsCongestion) return 0;
+        if (typeof congestionSampleCount === 'number' && congestionSampleCount > 0) return congestionSampleCount;
+        return sortedCongestionEntries.reduce((sum, [, count]) => sum + count, 0);
+    }, [wantsCongestion, congestionSampleCount, sortedCongestionEntries]);
+
+    const durationSubtitle = durationSource === 'annotation'
+        ? 'Theo dữ liệu annotation của Mapbox'
+        : durationSource === 'summary'
+            ? 'Theo tổng tuyến'
+            : undefined;
+
+    const distanceSubtitle = distanceSource === 'annotation'
+        ? 'Theo dữ liệu annotation của Mapbox'
+        : distanceSource === 'summary'
+            ? 'Theo tổng tuyến'
+            : undefined;
+
+    const speedSubtitle = speedSource === 'segments'
+        ? 'Theo tốc độ từng đoạn (Mapbox)'
+        : speedSource === 'computed'
+            ? 'Tính từ quãng đường & thời gian'
+            : undefined;
+
+    const speedDisplay = useMemo(() => {
+        if (!wantsSpeed || speedValueKmh == null || typeof speedValueKmh !== 'number' || !Number.isFinite(speedValueKmh)) return null;
+        const fixed = speedValueKmh >= 100 ? speedValueKmh.toFixed(0) : speedValueKmh.toFixed(1);
+        return `${fixed} km/h`;
+    }, [wantsSpeed, speedValueKmh]);
+
+    const showSupplementalSection = !!routeSummary && (wantsDuration || wantsDistance || wantsSpeed || wantsCongestion);
+    const showMetricCards = wantsDuration || wantsDistance || wantsSpeed;
 
     const handleCalculateRoute = useCallback((advancedOptions?: AdvancedOptions) => {
         calculateRoute(advancedOptions);
@@ -1046,7 +1175,6 @@ export const ControlsPanel: React.FC<ControlsPanelProps> = ({
                             disabled={isRouting}
                             className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-md transition-colors flex items-center gap-2"
                         >
-                            <Route size={16} />
                             {isRouting ? 'Đang tìm…' : 'Tìm đường'}
                         </button>
                     </div>
@@ -1063,6 +1191,92 @@ export const ControlsPanel: React.FC<ControlsPanelProps> = ({
                                     <div className="text-green-600 text-xs">Thời gian</div>
                                 </div>
                             </div>
+
+                            {showSupplementalSection && (
+                                <div className="bg-white border border-gray-200 rounded-lg p-3 space-y-3">
+                                    <div className="flex items-center gap-2 text-xs font-semibold text-gray-700 uppercase tracking-wide">
+                                        <TrafficCone size={14} className="text-orange-500" />
+                                        Thông tin bổ sung
+                                    </div>
+                                    {showMetricCards && (
+                                        <div className="grid grid-cols-2 gap-2 text-xs">
+                                            {wantsDuration && (
+                                                <div className="bg-gray-50 border border-gray-200 rounded-md px-3 py-2 flex flex-col gap-1">
+                                                    <div className="flex items-center gap-2 text-[11px] font-semibold text-gray-600 uppercase">
+                                                        <span className="inline-flex items-center justify-center p-1.5 rounded-md bg-green-100 text-green-600">
+                                                            <Clock size={14} />
+                                                        </span>
+                                                        Thời gian
+                                                    </div>
+                                                    <div className="text-sm font-semibold text-gray-900">
+                                                        {durationMinutes != null ? formatDuration(durationMinutes) : 'Không có dữ liệu'}
+                                                    </div>
+                                                    {durationSubtitle ? (
+                                                        <div className="text-[11px] text-gray-500">{durationSubtitle}</div>
+                                                    ) : null}
+                                                </div>
+                                            )}
+                                            {wantsDistance && (
+                                                <div className="bg-gray-50 border border-gray-200 rounded-md px-3 py-2 flex flex-col gap-1">
+                                                    <div className="flex items-center gap-2 text-[11px] font-semibold text-gray-600 uppercase">
+                                                        <span className="inline-flex items-center justify-center p-1.5 rounded-md bg-blue-100 text-blue-600">
+                                                            <Navigation size={14} />
+                                                        </span>
+                                                        Khoảng cách
+                                                    </div>
+                                                    <div className="text-sm font-semibold text-gray-900">
+                                                        {distanceMeters != null ? formatDistance(distanceMeters) : 'Không có dữ liệu'}
+                                                    </div>
+                                                    {distanceSubtitle ? (
+                                                        <div className="text-[11px] text-gray-500">{distanceSubtitle}</div>
+                                                    ) : null}
+                                                </div>
+                                            )}
+                                            {wantsSpeed && (
+                                                <div className="bg-gray-50 border border-gray-200 rounded-md px-3 py-2 flex flex-col gap-1">
+                                                    <div className="flex items-center gap-2 text-[11px] font-semibold text-gray-600 uppercase">
+                                                        <span className="inline-flex items-center justify-center p-1.5 rounded-md bg-purple-100 text-purple-600">
+                                                            <GaugeCircle size={14} />
+                                                        </span>
+                                                        Tốc độ
+                                                    </div>
+                                                    <div className="text-sm font-semibold text-gray-900">
+                                                        {speedDisplay ?? 'Không có dữ liệu'}
+                                                    </div>
+                                                    {speedSubtitle ? (
+                                                        <div className="text-[11px] text-gray-500">{speedSubtitle}</div>
+                                                    ) : null}
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+                                    {wantsCongestion && (
+                                        <div className="space-y-2">
+                                            <div className="text-[11px] font-semibold text-gray-600 uppercase">Tắc đường</div>
+                                            {sortedCongestionEntries.length > 0 ? (
+                                                <div className="flex flex-wrap gap-2">
+                                                    {sortedCongestionEntries.map(([level, count]) => {
+                                                        const label = CONGESTION_LABELS[level] || level;
+                                                        const badgeClass = CONGESTION_COLOR_CLASSES[level] || 'bg-gray-100 text-gray-600 border border-gray-200';
+                                                        const percentage = totalCongestionSegments > 0 ? Math.round((count / totalCongestionSegments) * 100) : null;
+                                                        return (
+                                                            <span key={level} className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-[11px] font-medium ${badgeClass}`}>
+                                                                {label}
+                                                                {percentage != null ? <span className="text-[10px] font-semibold">{percentage}%</span> : null}
+                                                            </span>
+                                                        );
+                                                    })}
+                                                </div>
+                                            ) : (
+                                                <div className="text-[11px] text-gray-400 italic">Không có dữ liệu tắc đường</div>
+                                            )}
+                                            {totalCongestionSegments > 0 ? (
+                                                <div className="text-[10px] text-gray-400">Dựa trên {totalCongestionSegments} đoạn tuyến</div>
+                                            ) : null}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
 
                             {routeAlternatives.length > 1 && (
                                 <div className="bg-white border border-gray-200 rounded-lg p-3">

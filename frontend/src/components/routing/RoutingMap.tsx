@@ -11,7 +11,7 @@ import { createPinElement } from './pinMarker';
 import { formatDuration, formatDistance, formatInstructionVI, renderInstructionPopupHTML } from './formatters';
 import { pickManeuverIcon } from './maneuvers';
 import { Toolbar } from './Toolbar';
-import { ControlsPanel } from './ControlsPanel';
+import { ControlsPanel, type AnnotationMetrics } from './ControlsPanel';
 import { GuidanceHUD } from './GuidanceHUD';
 import { SimulationPanel } from './SimulationPanel';
 
@@ -100,6 +100,8 @@ export default function RoutingMap() {
     }, [routes]);
     const [isRouting, setIsRouting] = useState(false);
     const [routeSummary, setRouteSummary] = useState<{ distanceKm: number; durationMin: number } | null>(null);
+    const [annotationMetrics, setAnnotationMetrics] = useState<AnnotationMetrics>({});
+    const [selectedAnnotations, setSelectedAnnotations] = useState<string[]>(['duration', 'distance', 'speed']);
     const [activeStepIdx, setActiveStepIdx] = useState<number | null>(null);
     const [guidanceMode, setGuidanceMode] = useState<boolean>(false);
     const [headingDeg, setHeadingDeg] = useState<number>(0);
@@ -612,6 +614,7 @@ export default function RoutingMap() {
             routesRef.current = [];
             setInstructions([]);
             setRouteSummary(null);
+            setAnnotationMetrics({});
             routeDataRef.current = { type: 'FeatureCollection', features: [] };
             if (mapRef.current) {
                 const src = mapRef.current.getSource(routeSourceId) as mapboxgl.GeoJSONSource | undefined;
@@ -663,6 +666,91 @@ export default function RoutingMap() {
         if (nextPopupRef.current) { nextPopupRef.current.remove(); nextPopupRef.current = null; }
 
         const legs: any[] = Array.isArray(primaryRoute?.legs) ? primaryRoute.legs : [];
+
+        const metrics: AnnotationMetrics = {};
+        if (legs.length > 0) {
+            const collectNumeric = (key: 'duration' | 'distance' | 'speed') => {
+                const values: number[] = [];
+                legs.forEach((leg: any) => {
+                    const arr = leg?.annotation?.[key];
+                    if (Array.isArray(arr)) {
+                        arr.forEach((val: any) => {
+                            if (typeof val === 'number' && Number.isFinite(val)) {
+                                values.push(val);
+                            }
+                        });
+                    }
+                });
+                return values;
+            };
+
+            const durationSegments = collectNumeric('duration');
+            const distanceSegments = collectNumeric('distance');
+            const speedSegments = collectNumeric('speed');
+
+            const durationFromAnnotations = durationSegments.reduce((sum, val) => sum + val, 0);
+            if (durationFromAnnotations > 0) {
+                metrics.durationSec = durationFromAnnotations;
+                metrics.durationSource = 'annotation';
+            }
+
+            const distanceFromAnnotations = distanceSegments.reduce((sum, val) => sum + val, 0);
+            if (distanceFromAnnotations > 0) {
+                metrics.distanceM = distanceFromAnnotations;
+                metrics.distanceSource = 'annotation';
+            }
+
+            if (speedSegments.length > 0) {
+                const avgSpeedMs = speedSegments.reduce((sum, val) => sum + val, 0) / speedSegments.length;
+                if (Number.isFinite(avgSpeedMs) && avgSpeedMs > 0) {
+                    metrics.averageSpeedKmh = avgSpeedMs * 3.6;
+                    metrics.speedSource = 'segments';
+                }
+            }
+
+            const congestionCounts: Record<string, number> = {};
+            let congestionSamples = 0;
+            legs.forEach((leg: any) => {
+                const arr = leg?.annotation?.congestion;
+                if (Array.isArray(arr)) {
+                    arr.forEach((val: any) => {
+                        if (typeof val === 'string' && val.trim().length > 0) {
+                            const normalized = val.toLowerCase();
+                            congestionCounts[normalized] = (congestionCounts[normalized] ?? 0) + 1;
+                            congestionSamples++;
+                        }
+                    });
+                }
+            });
+            if (congestionSamples > 0) {
+                metrics.congestionLevels = congestionCounts;
+                metrics.congestionSampleCount = congestionSamples;
+            }
+        }
+
+        if (metrics.durationSec == null && typeof primaryRoute?.duration === 'number') {
+            metrics.durationSec = primaryRoute.duration;
+            metrics.durationSource = 'summary';
+        }
+        if (metrics.distanceM == null && typeof primaryRoute?.distance === 'number') {
+            metrics.distanceM = primaryRoute.distance;
+            metrics.distanceSource = 'summary';
+        }
+        if ((metrics.averageSpeedKmh == null || !Number.isFinite(metrics.averageSpeedKmh)) && metrics.distanceM != null && metrics.durationSec != null && metrics.durationSec > 0) {
+            const derivedSpeed = (metrics.distanceM / metrics.durationSec) * 3.6;
+            if (Number.isFinite(derivedSpeed) && derivedSpeed > 0) {
+                metrics.averageSpeedKmh = derivedSpeed;
+                if (!metrics.speedSource) metrics.speedSource = 'computed';
+            } else {
+                delete metrics.averageSpeedKmh;
+                if (metrics.speedSource === 'segments' && !(Number.isFinite(derivedSpeed) && derivedSpeed > 0)) {
+                    delete metrics.speedSource;
+                }
+            }
+        }
+
+        setAnnotationMetrics(metrics);
+
         const steps = legs.flatMap((leg: any) => {
             const legSteps: any[] = Array.isArray(leg?.steps) ? leg.steps : [];
             const maxSpeedAnn: any[] | undefined = leg?.annotation?.maxspeed;
@@ -802,7 +890,7 @@ export default function RoutingMap() {
         }
 
         setSimPlaying(false);
-    }, [createVehicleElement, distanceMeters, keepZoom]);
+    }, [createVehicleElement, distanceMeters, keepZoom, setAnnotationMetrics]);
 
 
     // Robust geolocation handler for "Pin my location"
@@ -972,6 +1060,14 @@ export default function RoutingMap() {
 
     const calculateRoute = useCallback(async (advancedOptions?: AdvancedOptions) => {
         if (!startPoint || !endPoint || !mapRef.current) return;
+        const rawAnnotations = Array.isArray(advancedOptions?.annotations)
+            ? advancedOptions.annotations.filter((item): item is string => typeof item === 'string')
+            : undefined;
+        const requestedAnnotations = rawAnnotations !== undefined
+            ? Array.from(new Set(rawAnnotations))
+            : ['duration', 'distance', 'speed'];
+        setSelectedAnnotations(requestedAnnotations);
+        setAnnotationMetrics({});
         setIsRouting(true);
         setInstructions([]);
         setRouteSummary(null);
@@ -1554,6 +1650,8 @@ export default function RoutingMap() {
                 calculateRoute={calculateRoute}
                 instructions={instructions}
                 routeSummary={routeSummary}
+                selectedAnnotations={selectedAnnotations}
+                annotationMetrics={annotationMetrics}
                 activeStepIdx={activeStepIdx}
                 focusStep={focusStep}
                 onStartGuidance={() => { if (!instructions || instructions.length === 0) return; setGuidanceMode(true); focusStep(0); }}
