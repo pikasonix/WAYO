@@ -1,6 +1,6 @@
-// Helper that creates a simple circular white marker with a colored stroke.
+// Helper that creates a simple circular white marker with a colored stroke and optional number.
 // Returns an HTMLDivElement that can be passed to Mapbox Marker({ element })
-export function createPinElement(color: string = '#ef4444'): HTMLDivElement {
+export function createPinElement(color: string = '#ef4444', number?: number): HTMLDivElement {
     const size = 18; // px
     const strokeWidth = 3; // px
     const container = document.createElement('div');
@@ -32,6 +32,22 @@ export function createPinElement(color: string = '#ef4444'): HTMLDivElement {
     circle.setAttribute('stroke-linecap', 'round');
 
     svg.appendChild(circle);
+
+    // Add number text if provided
+    if (number !== undefined) {
+        const text = document.createElementNS(svgNS, 'text');
+        text.setAttribute('x', `${cx}`);
+        text.setAttribute('y', `${cy}`);
+        text.setAttribute('text-anchor', 'middle');
+        text.setAttribute('dominant-baseline', 'central');
+        text.setAttribute('font-family', 'Arial, sans-serif');
+        text.setAttribute('font-size', '10');
+        text.setAttribute('font-weight', 'bold');
+        text.setAttribute('fill', color);
+        text.textContent = String(number);
+        svg.appendChild(text);
+    }
+
     container.appendChild(svg);
     return container;
 }

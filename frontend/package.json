@@ -10,6 +10,9 @@
     "supabase:typegen": "npx supabase gen types typescript --project-id 'jrxpkakimcdfecdepmyu' > supabase/types.ts"
   },
   "dependencies": {
+    "@dnd-kit/core": "^6.3.1",
+    "@dnd-kit/sortable": "^10.0.0",
+    "@dnd-kit/utilities": "^3.2.2",
     "@hookform/resolvers": "^5.0.1",
     "@radix-ui/react-dialog": "^1.1.10",
     "@radix-ui/react-label": "^2.1.4",

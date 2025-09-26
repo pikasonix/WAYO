@@ -1,5 +1,6 @@
 "use client";
 import React from 'react';
+import { formatDistance } from './formatters';
 
 type SimulationPanelProps = {
     simPlaying: boolean;
@@ -10,6 +11,10 @@ type SimulationPanelProps = {
     setSimFollow: (v: boolean) => void;
     canSimulate: boolean;
     onSimReset: () => void;
+    // Metrics
+    simRemainingM?: number; // distance to destination in meters
+    simEtaSec?: number; // estimated seconds to destination
+    simToNextManeuverM?: number; // distance to next maneuver in meters
 };
 
 export const SimulationPanel: React.FC<SimulationPanelProps> = ({
@@ -21,7 +26,18 @@ export const SimulationPanel: React.FC<SimulationPanelProps> = ({
     setSimFollow,
     canSimulate,
     onSimReset,
+    simRemainingM = 0,
+    simEtaSec = 0,
+    simToNextManeuverM = 0,
 }) => {
+    const formatEta = (sec: number) => {
+        if (!Number.isFinite(sec) || sec <= 0) return '—';
+        const minutes = Math.round(sec / 60);
+        if (minutes < 60) return `${minutes}m`;
+        const h = Math.floor(minutes / 60);
+        const m = minutes % 60;
+        return `${h}h ${m}m`;
+    };
     return (
         <div className="absolute top-[120px] right-12 z-[360] bg-white/95 backdrop-blur rounded-lg shadow border border-gray-200 p-3 w-[360px]">
             <div className="flex items-center justify-between gap-2 mb-2">
@@ -64,6 +80,20 @@ export const SimulationPanel: React.FC<SimulationPanelProps> = ({
                 >
                     Đầu tuyến
                 </button>
+            </div>
+            <div className="mt-3 grid grid-cols-3 gap-2 text-center">
+                <div className="bg-blue-50 border border-blue-200 rounded p-2">
+                    <div className="text-[11px] text-blue-700 font-semibold">Còn lại</div>
+                    <div className="text-xs text-blue-900">{formatDistance(simRemainingM || 0)}</div>
+                </div>
+                <div className="bg-emerald-50 border border-emerald-200 rounded p-2">
+                    <div className="text-[11px] text-emerald-700 font-semibold">ETA</div>
+                    <div className="text-xs text-emerald-900">{formatEta(simEtaSec || 0)}</div>
+                </div>
+                <div className="bg-amber-50 border border-amber-200 rounded p-2">
+                    <div className="text-[11px] text-amber-700 font-semibold">Đến rẽ tiếp</div>
+                    <div className="text-xs text-amber-900">{formatDistance(simToNextManeuverM || 0)}</div>
+                </div>
             </div>
         </div>
     );

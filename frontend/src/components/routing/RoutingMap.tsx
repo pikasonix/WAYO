@@ -70,6 +70,20 @@ export default function RoutingMap() {
     const [simPlaying, setSimPlaying] = useState<boolean>(false);
     const [simSpeed, setSimSpeed] = useState<number>(1);
     const [simFollow, setSimFollow] = useState<boolean>(true);
+    // Simulation metrics & step tracking
+    const [simRemainingM, setSimRemainingM] = useState<number>(0);
+    const [simEtaSec, setSimEtaSec] = useState<number>(0);
+    const [simToNextManeuverM, setSimToNextManeuverM] = useState<number>(0);
+    const stepStartCumRef = useRef<number[]>([]); // per-step start cumulative distance (m)
+    const stepEndCumRef = useRef<number[]>([]);   // per-step end cumulative distance (m)
+    const stepFirstCoordIndexRef = useRef<number[]>([]); // index of first coord of each step in route coords
+    const stepMetersRef = useRef<number[]>([]);   // per-step length in meters
+    const stepDurationSecRef = useRef<number[]>([]); // per-step duration in seconds (from API)
+    const stepCumDurEndRef = useRef<number[]>([]); // cumulative duration to end of each step (sec)
+    const routeTotalDurationSecRef = useRef<number>(0);
+    const nextStepIdxRef = useRef<number>(0);
+    const lastPassedPopupRef = useRef<mapboxgl.Popup | null>(null);
+    const nextPopupRef = useRef<mapboxgl.Popup | null>(null);
     const geoWatchIdRef = useRef<number | null>(null);
     const courseUpRef = useRef<boolean>(false);
     const cameraBearingRef = useRef<number>(0);
@@ -412,7 +426,7 @@ export default function RoutingMap() {
     }, [waypoints, waypointLabels, updateWaypointLabelFrom]);
 
     // Use external helper to create pin elements
-    const create3DPinElement = useCallback((color: string = '#ef4444') => createPinElement(color), []);
+    const create3DPinElement = useCallback((color: string = '#ef4444', number?: number) => createPinElement(color, number), []);
 
     const set3DPinAt = useCallback((lng: number, lat: number, color: string = '#ef4444') => {
         if (!mapRef.current) return;
@@ -568,13 +582,10 @@ export default function RoutingMap() {
     useEffect(() => {
         if (!mapReady || !mapRef.current) return;
         const m = mapRef.current;
-        const createMarkerEl = (color: string) => {
-            const el = create3DPinElement(color);
-            return new mapboxgl.Marker({ element: el, anchor: 'center' as any, draggable: true });
-        };
 
         if (!startMarkerRef.current && startPoint) {
-            startMarkerRef.current = createMarkerEl('#3b82f6')
+            const startEl = create3DPinElement('#3b82f6', 1);
+            startMarkerRef.current = new mapboxgl.Marker({ element: startEl, anchor: 'center' as any, draggable: true })
                 .setLngLat(toLngLat(startPoint) as any)
                 .addTo(m)
                 .on('dragend', () => {
@@ -586,7 +597,8 @@ export default function RoutingMap() {
             startMarkerRef.current.setLngLat(toLngLat(startPoint) as any);
         }
         if (!endMarkerRef.current && endPoint) {
-            endMarkerRef.current = createMarkerEl('#ef4444')
+            const endEl = create3DPinElement('#ef4444', waypoints.length + 2);
+            endMarkerRef.current = new mapboxgl.Marker({ element: endEl, anchor: 'center' as any, draggable: true })
                 .setLngLat(toLngLat(endPoint) as any)
                 .addTo(m)
                 .on('dragend', () => {
@@ -603,11 +615,26 @@ export default function RoutingMap() {
         if (!mapReady || !mapRef.current) return;
         viaMarkersRef.current.forEach((mk) => mk.remove());
         viaMarkersRef.current = [];
-        waypoints.forEach((wp) => {
-            const mk = new mapboxgl.Marker({ color: '#1e40af' }).setLngLat([wp.lng, wp.lat]).addTo(mapRef.current!);
+        waypoints.forEach((wp, index) => {
+            const wpEl = create3DPinElement('#1e40af', index + 2);
+            const mk = new mapboxgl.Marker({ element: wpEl, anchor: 'center' as any }).setLngLat([wp.lng, wp.lat]).addTo(mapRef.current!);
             viaMarkersRef.current.push(mk);
         });
-    }, [mapReady, waypoints]);
+
+        // Update end marker number when waypoints change
+        if (endMarkerRef.current && endPoint) {
+            endMarkerRef.current.remove();
+            const endEl = create3DPinElement('#ef4444', waypoints.length + 2);
+            endMarkerRef.current = new mapboxgl.Marker({ element: endEl, anchor: 'center' as any, draggable: true })
+                .setLngLat(toLngLat(endPoint) as any)
+                .addTo(mapRef.current!)
+                .on('dragend', () => {
+                    const ll = endMarkerRef.current!.getLngLat();
+                    setEndPoint({ lat: ll.lat, lng: ll.lng });
+                    updateEndLabelFrom(ll.lng, ll.lat);
+                });
+        }
+    }, [mapReady, waypoints, endPoint, create3DPinElement, updateEndLabelFrom]);
 
     const calculateRoute = useCallback(async () => {
         if (!startPoint || !endPoint || !mapRef.current) return;
@@ -657,6 +684,53 @@ export default function RoutingMap() {
                 simTotalDistRef.current = simCumDistRef.current[simCumDistRef.current.length - 1] ?? 0;
                 simDistRef.current = 0;
                 lastTsRef.current = null;
+                // Build step cumulative ranges, first-coord indices, per-step meters & durations
+                stepStartCumRef.current = [];
+                stepEndCumRef.current = [];
+                stepFirstCoordIndexRef.current = [];
+                stepMetersRef.current = [];
+                stepDurationSecRef.current = [];
+                stepCumDurEndRef.current = [];
+                routeTotalDurationSecRef.current = (route.duration as number) || 0;
+                {
+                    let globalIndex = 0; // index in coords array
+                    for (let si = 0; si < steps.length; si++) {
+                        const geom: [number, number][] = steps[si]?.geometry?.coordinates || [];
+                        if (!geom || geom.length === 0) {
+                            stepStartCumRef.current.push(simCumDistRef.current[globalIndex] || 0);
+                            stepEndCumRef.current.push(simCumDistRef.current[globalIndex] || 0);
+                            stepFirstCoordIndexRef.current.push(globalIndex);
+                            stepMetersRef.current.push(0);
+                            stepDurationSecRef.current.push((steps[si]?.duration as number) || 0);
+                            stepCumDurEndRef.current.push((stepCumDurEndRef.current[stepCumDurEndRef.current.length - 1] || 0) + ((steps[si]?.duration as number) || 0));
+                            continue;
+                        }
+                        const first = geom[0];
+                        // find first occurrence index of this first coord in the full coords starting at current globalIndex
+                        let found = globalIndex;
+                        for (let gi = globalIndex; gi < coords.length; gi++) {
+                            if (coords[gi][0] === first[0] && coords[gi][1] === first[1]) { found = gi; break; }
+                        }
+                        stepFirstCoordIndexRef.current.push(found);
+                        const startCum = simCumDistRef.current[found] || 0;
+                        // estimate end index: found + (geom.length - 1) but cap within coords
+                        const endIdx = Math.min(coords.length - 1, found + Math.max(0, geom.length - 1));
+                        const endCum = simCumDistRef.current[endIdx] || startCum;
+                        stepStartCumRef.current.push(startCum);
+                        stepEndCumRef.current.push(endCum);
+                        stepMetersRef.current.push(Math.max(0, endCum - startCum));
+                        const stepDur = (steps[si]?.duration as number) || 0;
+                        stepDurationSecRef.current.push(stepDur);
+                        const prevCumDur = stepCumDurEndRef.current[stepCumDurEndRef.current.length - 1] || 0;
+                        stepCumDurEndRef.current.push(prevCumDur + stepDur);
+                        globalIndex = endIdx; // advance hint
+                    }
+                }
+                nextStepIdxRef.current = 0;
+                setSimRemainingM(simTotalDistRef.current);
+                setSimEtaSec(routeTotalDurationSecRef.current); // initialize ETA from API total duration
+                // Distance to first maneuver is from position 0 to END of step 0 (next instruction)
+                setSimToNextManeuverM(Math.max(0, (stepEndCumRef.current[0] || 0) - 0));
                 const startPos = coords[0];
                 const simEl = createVehicleElement('#f59e0b');
                 if (simMarkerRef.current) simMarkerRef.current.remove();
@@ -672,7 +746,7 @@ export default function RoutingMap() {
         } finally {
             setIsRouting(false);
         }
-    }, [startPoint, endPoint, waypoints, profile, keepZoom]);
+    }, [startPoint, endPoint, waypoints, profile, keepZoom, simSpeed]);
 
     useEffect(() => {
         if (!simPlaying) {
@@ -711,9 +785,71 @@ export default function RoutingMap() {
                     const targetPitch = Math.max(mapRef.current!.getPitch(), 60);
                     mapRef.current!.jumpTo({ center: pos as any, bearing: camBearing, zoom: targetZoom, pitch: targetPitch });
                 }
+                // Update metrics
+                const remaining = Math.max(0, simTotalDistRef.current - simDistRef.current);
+                setSimRemainingM(remaining);
+                // Prefer ETA projected from routing API duration for consistency with route summary
+                if (routeTotalDurationSecRef.current > 0) {
+                    const fracRemaining = simTotalDistRef.current > 0 ? (remaining / simTotalDistRef.current) : 0;
+                    setSimEtaSec(fracRemaining * routeTotalDurationSecRef.current);
+                } else {
+                    const v = baseSpeed * Math.max(0.1, simSpeed);
+                    setSimEtaSec(remaining / v);
+                }
+                // Determine current and next step by cumulative arrays
+                const starts = stepStartCumRef.current;
+                const ends = stepEndCumRef.current;
+                const nSteps = starts.length;
+                if (nSteps > 0) {
+                    let idx = nextStepIdxRef.current;
+                    // Advance index while we've passed the end of the step
+                    while (idx < nSteps && simDistRef.current >= (ends[idx] - 1e-6)) idx++;
+                    // Determine indices for passed and upcoming instructions
+                    const currentIdx = Math.min(nSteps - 1, idx); // step we are currently in
+                    const curPassedIdx = currentIdx; // the maneuver at the start of the current step has just been passed
+                    const nextIdx = Math.min(nSteps - 1, idx + 1); // upcoming step (next maneuver)
+                    nextStepIdxRef.current = idx;
+                    // Distance to next maneuver: distance from current position to END of current step
+                    const toNextEnd = ends[currentIdx] ?? simTotalDistRef.current;
+                    const toNext = Math.max(0, toNextEnd - simDistRef.current);
+                    setSimToNextManeuverM(toNext);
+                    if (mapRef.current) {
+                        try {
+                            // Build or update 'next' popup at next maneuver location
+                            const nextStep = instructions[nextIdx];
+                            const nextLoc = nextStep?.maneuver?.location as [number, number] | undefined;
+                            if (nextLoc && (!nextPopupRef.current)) {
+                                const html = renderInstructionPopupHTML(nextStep);
+                                nextPopupRef.current = new mapboxgl.Popup({ closeOnClick: false, closeButton: false, offset: 14, className: 'instruction-popup' })
+                                    .setLngLat(nextLoc as any)
+                                    .setHTML(html)
+                                    .addTo(mapRef.current);
+                            } else if (nextLoc && nextPopupRef.current) {
+                                const html = renderInstructionPopupHTML(nextStep);
+                                nextPopupRef.current.setLngLat(nextLoc as any).setHTML(html);
+                            }
+                            // Build/update 'passed' popup at current/past step location
+                            const passedStep = instructions[curPassedIdx];
+                            const passedLoc = passedStep?.maneuver?.location as [number, number] | undefined;
+                            if (passedLoc && (!lastPassedPopupRef.current)) {
+                                const html = renderInstructionPopupHTML(passedStep);
+                                lastPassedPopupRef.current = new mapboxgl.Popup({ closeOnClick: false, closeButton: false, offset: 14, className: 'instruction-popup' })
+                                    .setLngLat(passedLoc as any)
+                                    .setHTML(html)
+                                    .addTo(mapRef.current);
+                            } else if (passedLoc && lastPassedPopupRef.current) {
+                                const html = renderInstructionPopupHTML(passedStep);
+                                lastPassedPopupRef.current.setLngLat(passedLoc as any).setHTML(html);
+                            }
+                        } catch { }
+                    }
+                }
             }
             if (simDistRef.current >= simTotalDistRef.current) {
                 setSimPlaying(false);
+                // Cleanup popups at end
+                if (lastPassedPopupRef.current) { lastPassedPopupRef.current.remove(); lastPassedPopupRef.current = null; }
+                if (nextPopupRef.current) { nextPopupRef.current.remove(); nextPopupRef.current = null; }
                 simRAFRef.current = null;
                 return;
             }
@@ -723,8 +859,10 @@ export default function RoutingMap() {
         return () => {
             if (simRAFRef.current != null) cancelAnimationFrame(simRAFRef.current);
             simRAFRef.current = null;
+            if (lastPassedPopupRef.current) { lastPassedPopupRef.current.remove(); lastPassedPopupRef.current = null; }
+            if (nextPopupRef.current) { nextPopupRef.current.remove(); nextPopupRef.current = null; }
         };
-    }, [simPlaying, simSpeed, simFollow, positionAtDistance, keepZoom]);
+    }, [simPlaying, simSpeed, simFollow, positionAtDistance, keepZoom, instructions]);
 
     useEffect(() => {
         if (simPlaying && simFollow && mapRef.current) {
@@ -832,11 +970,18 @@ export default function RoutingMap() {
     }, [headingDeg]);
 
     useEffect(() => {
+        // Always rebuild markers; popups depend on simPlaying/showAllPopups
         stepMarkersRef.current.forEach((m) => m.remove());
         stepMarkersRef.current = [];
+        // Remove any adhoc open step popup when rebuilding
         if (openStepPopupRef.current) {
             openStepPopupRef.current.remove();
             openStepPopupRef.current = null;
+        }
+        // When simulation is running, also remove any static step popups and skip creating them
+        if (simPlaying) {
+            stepPopupsRef.current.forEach((p) => p.remove());
+            stepPopupsRef.current = [];
         }
         if (!mapReady || !mapRef.current) return;
         if (!instructions || instructions.length === 0) return;
@@ -887,7 +1032,7 @@ export default function RoutingMap() {
             const mk = new mapboxgl.Marker({ element: el, anchor: 'center' as any })
                 .setLngLat(loc as any)
                 .addTo(mapRef.current!);
-            if (showAllPopups) {
+            if (showAllPopups && !simPlaying) {
                 try {
                     const html = renderInstructionPopupHTML(step);
                     const pp = new mapboxgl.Popup({ closeButton: false, closeOnClick: false, offset: 14, className: 'instruction-popup' })
@@ -914,7 +1059,7 @@ export default function RoutingMap() {
                         mapRef.current!.easeTo(cam);
                         setHeadingDeg(br);
 
-                        if (!showAllPopups) {
+                        if (!showAllPopups && !simPlaying) {
                             try {
                                 if (openStepPopupRef.current) {
                                     openStepPopupRef.current.remove();
@@ -943,9 +1088,17 @@ export default function RoutingMap() {
             stepPopupsRef.current.forEach((p) => p.remove());
             stepPopupsRef.current = [];
         };
-    }, [instructions, mapReady, showAllPopups]);
+    }, [instructions, mapReady, showAllPopups, simPlaying]);
 
     useEffect(() => {
+        if (simPlaying) {
+            // Suppress adhoc popup while simulating
+            if (openStepPopupRef.current) {
+                openStepPopupRef.current.remove();
+                openStepPopupRef.current = null;
+            }
+            return;
+        }
         if (!alwaysShowPopup) return;
         if (showAllPopups) return;
         if (!mapReady || !mapRef.current) return;
@@ -971,7 +1124,7 @@ export default function RoutingMap() {
                 .setHTML(html)
                 .addTo(mapRef.current!);
         } catch { }
-    }, [alwaysShowPopup, activeStepIdx, instructions, mapReady, showAllPopups]);
+    }, [alwaysShowPopup, activeStepIdx, instructions, mapReady, showAllPopups, simPlaying]);
 
     useEffect(() => {
         if (!guidanceMode || activeStepIdx == null || !instructions[activeStepIdx]) return;
@@ -1094,6 +1247,7 @@ export default function RoutingMap() {
                 startLabel={startLabel}
                 endLabel={endLabel}
                 waypointLabels={waypointLabels}
+                setWaypointLabels={setWaypointLabels}
                 setStartPoint={setStartPoint}
                 setEndPoint={setEndPoint}
                 setWaypoints={setWaypoints}
@@ -1112,6 +1266,11 @@ export default function RoutingMap() {
                 onSimReset={() => {
                     simDistRef.current = 0;
                     lastTsRef.current = null;
+                    nextStepIdxRef.current = 0;
+                    setSimRemainingM(simTotalDistRef.current);
+                    if (routeTotalDurationSecRef.current > 0) setSimEtaSec(routeTotalDurationSecRef.current);
+                    else setSimEtaSec((simTotalDistRef.current / (10 * Math.max(0.1, simSpeed))) || 0);
+                    setSimToNextManeuverM(Math.max(0, (stepEndCumRef.current[0] || 0) - 0));
                     const sample = positionAtDistance(0);
                     if (sample && simMarkerRef.current) {
                         simMarkerRef.current.setLngLat(sample.pos as any);
@@ -1127,6 +1286,9 @@ export default function RoutingMap() {
                         }
                     }
                 }}
+                simRemainingM={simRemainingM}
+                simEtaSec={simEtaSec}
+                simToNextManeuverM={simToNextManeuverM}
             />
             <GuidanceHUD
                 visible={guidanceMode}
