@@ -373,7 +373,7 @@ export default function RoutingMap() {
                             source: routeSourceId,
                             filter: ['==', ['get', 'isPrimary'], false],
                             paint: {
-                                'line-color': '#94a3b8',
+                                'line-color': '#60a5fa',
                                 'line-width': [
                                     'interpolate',
                                     ['linear'],
@@ -382,8 +382,7 @@ export default function RoutingMap() {
                                     14, 4.5,
                                     18, 8
                                 ],
-                                'line-opacity': 0.55,
-                                'line-dasharray': [1.2, 1.4]
+                                'line-opacity': 0.7,
                             },
                             layout: { 'line-cap': 'round', 'line-join': 'round' }
                         });
