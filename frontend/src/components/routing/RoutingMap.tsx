@@ -72,11 +72,10 @@ export default function RoutingMap() {
     const lastTsRef = useRef<number | null>(null);
     const simLockedZoomRef = useRef<number | null>(null);
     const [mapReady, setMapReady] = useState(false);
-    const [startPoint, setStartPoint] = useState<{ lat: number; lng: number } | null>({ lat: 21.0278, lng: 105.8342 });
-    const [endPoint, setEndPoint] = useState<{ lat: number; lng: number } | null>({ lat: 21.0378, lng: 105.8442 });
+    const [startPoint, setStartPoint] = useState<{ lat: number; lng: number } | null>(null);
+    const [endPoint, setEndPoint] = useState<{ lat: number; lng: number } | null>(null);
     const [waypoints, setWaypoints] = useState<Array<{ lat: number; lng: number }>>([]);
     const [profile, setProfile] = useState<Profile>('driving');
-    const [useAdvancedOptions, setUseAdvancedOptions] = useState<boolean>(false);
     const [routes, setRoutes] = useState<any[]>([]);
     const [selectedRouteIdx, setSelectedRouteIdx] = useState<number>(0);
     const [instructions, setInstructions] = useState<any[]>([]);
@@ -945,6 +944,48 @@ export default function RoutingMap() {
             }
         }
     }, [set3DPinAt]);
+
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        if (startPoint) return;
+        let cancelled = false;
+
+        const attemptInitialLocation = async () => {
+            if (!('geolocation' in navigator)) return;
+
+            const loc = typeof window !== 'undefined' ? window.location : undefined;
+            const isLocalhost = !!loc && /^(localhost|127\.0\.0\.1|::1)$/i.test(loc.hostname);
+            const isSecure = (!!loc && loc.protocol === 'https:') || (typeof window !== 'undefined' && window.isSecureContext) || isLocalhost;
+            if (!isSecure) return;
+
+            try {
+                const perm = await (navigator as any)?.permissions?.query?.({ name: 'geolocation' as PermissionName });
+                if (perm && perm.state === 'denied') return;
+            } catch { /* ignore permission probing errors */ }
+
+            const getPosition = () => new Promise<GeolocationPosition>((resolve, reject) => {
+                navigator.geolocation.getCurrentPosition(resolve, reject, {
+                    enableHighAccuracy: true,
+                    timeout: 12000,
+                    maximumAge: 1000,
+                });
+            });
+
+            try {
+                const pos = await getPosition();
+                if (cancelled) return;
+                const { latitude, longitude } = pos.coords;
+                setStartPoint({ lat: latitude, lng: longitude });
+                updateStartLabelFrom(longitude, latitude);
+            } catch { /* silently fall back to empty start point */ }
+        };
+
+        attemptInitialLocation();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [startPoint, updateStartLabelFrom]);
 
     const ensureVehicleMarker = useCallback((lng: number, lat: number) => {
         if (!mapRef.current) return;

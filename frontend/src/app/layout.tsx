@@ -56,7 +56,7 @@ export default function RootLayout({
       >
         {/* Load FontAwesome kit early so <i className="fas fa-..."> icons render */}
         <Script
-          src="https://kit.fontawesome.com/0a8561bf88.js"
+          src="https://kit.fontawesome.com/a6e6a7638e.js"
           strategy="beforeInteractive"
           crossOrigin="anonymous"
         />

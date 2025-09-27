@@ -3,7 +3,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { DndContext, closestCenter, DragEndEvent, DragOverEvent } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy, arrayMove } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { GripVertical, MapPin, Plus, ArrowUpDown, X, ScanSearch, Navigation, Route, List, ChevronLeft, ChevronRight, Car, PersonStanding, Bike, Clock, GaugeCircle, TrafficCone } from 'lucide-react';
+import { GripVertical, MapPin, Plus, ArrowUpDown, X, ScanSearch, Navigation, Route, List, Clock, GaugeCircle, TrafficCone, PanelLeftOpen, PanelRightOpen } from 'lucide-react';
 import { formatDuration, formatDistance, formatInstructionVI } from './formatters';
 import config from '@/config/config';
 import { getGeocoder, type Suggestion } from '@/services/geocoding';
@@ -1004,378 +1004,420 @@ export const ControlsPanel: React.FC<ControlsPanelProps> = ({
         setWaypointSugs({});
     }, [startPoint, endPoint, waypoints, startText, endText, setStartPoint, setEndPoint, setWaypoints]);
 
-    return (
-        <div className="absolute top-30 left-3 z-[360] flex items-start gap-2">
-            {/* Toggle Button */}
-            <button
-                onClick={() => setIsCollapsed(!isCollapsed)}
-                className="bg-white/95 backdrop-blur rounded-lg shadow border border-gray-200 p-2 hover:bg-gray-50 transition-colors"
-                title={isCollapsed ? 'Mở bảng điều khiển' : 'Thu gọn bảng điều khiển'}
-            >
-                {isCollapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
-            </button>
+    const canCalculateRoute = !!startPoint && !!endPoint && !isRouting;
+    const hasInstructions = Array.isArray(instructions) && instructions.length > 0;
 
-            {/* Main Panel */}
-            {!isCollapsed && (
-                <div className="bg-white/95 backdrop-blur rounded-lg shadow border border-gray-200 p-4 w-[380px]">
-                    {/* Start/End/Waypoints section */}
-                    <div className="mb-6">
-                        <div className="flex items-center justify-between mb-3">
-                            <div className="text-sm font-semibold text-gray-800 inline-flex items-center gap-2">
-                                <MapPin size={16} className="text-blue-600" />
-                                Điểm đi/đến
+    return (
+        <div className="absolute top-32 left-3 z-[360]">
+            {isCollapsed ? (
+                <div className="bg-white/95 backdrop-blur rounded-lg shadow border border-gray-200 w-16 flex flex-col items-center py-3 space-y-3">
+                    <button
+                        onClick={() => setIsCollapsed(false)}
+                        className="p-2 rounded bg-blue-500 text-white hover:bg-blue-400 transition-colors"
+                        title="Mở bảng điều khiển"
+                    >
+                        <PanelLeftOpen size={18} />
+                    </button>
+                    <button
+                        onClick={onPickEnd}
+                        className="p-2 rounded hover:bg-gray-100 text-gray-700 transition-colors"
+                        title="Chọn điểm kết thúc"
+                    >
+                        <MapPin size={18} />
+                    </button>
+                    <button
+                        onClick={handleAddWaypoint}
+                        className="p-2 rounded hover:bg-gray-100 text-gray-700 transition-colors"
+                        title="Thêm điểm trung gian"
+                    >
+                        <Plus size={18} />
+                    </button>
+                    <button
+                        onClick={handleReverseRoute}
+                        className="p-2 rounded hover:bg-gray-100 text-gray-700 transition-colors"
+                        title="Đảo chiều đi/đến"
+                    >
+                        <ArrowUpDown size={18} />
+                    </button>
+                    <button
+                        onClick={() => calculateRoute()}
+                        disabled={!canCalculateRoute}
+                        className={`p-2 rounded transition-colors ${canCalculateRoute ? 'hover:bg-gray-100 text-gray-700' : 'text-gray-300 cursor-not-allowed'}`}
+                        title="Tìm đường"
+                    >
+                        <Route size={18} />
+                    </button>
+                    <button
+                        onClick={onStartGuidance}
+                        disabled={!hasInstructions}
+                        className={`p-2 rounded transition-colors ${hasInstructions ? 'hover:bg-gray-100 text-gray-700' : 'text-gray-300 cursor-not-allowed'}`}
+                        title="Bắt đầu chỉ đường"
+                    >
+                        <Navigation size={18} />
+                    </button>
+                </div>
+            ) : (
+                <div className="flex items-start gap-2">
+                    <div className="bg-white/95 backdrop-blur rounded-lg shadow border border-gray-200 p-4 w-[380px]">
+                        {/* Start/End/Waypoints section */}
+                        <div className="mb-6">
+                            <div className="flex items-center justify-between mb-3">
+                                <div className="text-sm font-semibold text-gray-800 inline-flex items-center gap-2">
+                                    <button
+                                        onClick={() => setIsCollapsed(true)}
+                                        className="bg-white/95 backdrop-blur rounded-lg shadow border border-gray-200 p-2 hover:bg-gray-50 transition-colors"
+                                        title="Thu gọn bảng điều khiển"
+                                    >
+                                        <PanelRightOpen size={18} />
+                                    </button>
+                                    Tìm đường
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <button
+                                        className="text-xs bg-gray-100 hover:bg-gray-200 text-gray-700 px-2 py-1 rounded-md flex items-center gap-1 font-medium transition-colors"
+                                        title="Đảo chiều đi/đến"
+                                        onClick={handleReverseRoute}
+                                    >
+                                        <ArrowUpDown size={12} /> Đảo chiều
+                                    </button>
+                                    <button
+                                        className="text-xs bg-blue-100 hover:bg-blue-200 text-blue-700 px-2 py-1 rounded-md flex items-center gap-1 font-medium transition-colors"
+                                        title="Thêm điểm trung gian"
+                                        onClick={handleAddWaypoint}
+                                    >
+                                        <Plus size={12} /> Thêm điểm
+                                    </button>
+                                </div>
                             </div>
-                            <div className="flex items-center gap-2">
-                                <button
-                                    className="text-xs bg-gray-100 hover:bg-gray-200 text-gray-700 px-2 py-1 rounded-md flex items-center gap-1 font-medium transition-colors"
-                                    title="Đảo chiều đi/đến"
-                                    onClick={handleReverseRoute}
+                            <div className="space-y-2">
+                                <DndContext
+                                    collisionDetection={closestCenter}
+                                    onDragStart={handleDragStart}
+                                    onDragOver={handleDragOver}
+                                    onDragEnd={handleDragEnd}
                                 >
-                                    <ArrowUpDown size={12} /> Đảo chiều
-                                </button>
-                                <button
-                                    className="text-xs bg-blue-100 hover:bg-blue-200 text-blue-700 px-2 py-1 rounded-md flex items-center gap-1 font-medium transition-colors"
-                                    title="Thêm điểm trung gian"
-                                    onClick={handleAddWaypoint}
-                                >
-                                    <Plus size={12} /> Thêm điểm
-                                </button>
-                            </div>
-                        </div>
-                        <div className="space-y-2">
-                            <DndContext
-                                collisionDetection={closestCenter}
-                                onDragStart={handleDragStart}
-                                onDragOver={handleDragOver}
-                                onDragEnd={handleDragEnd}
-                            >
-                                <SortableContext items={['start', ...waypointIds, 'end']} strategy={verticalListSortingStrategy}>
-                                    <SortableStartRow
-                                        startText={startText}
-                                        setStartText={setStartText}
-                                        setStartPoint={setStartPoint}
-                                        isEditingStart={isEditingStart}
-                                        setIsEditingStart={setIsEditingStart}
-                                        loadingStart={loadingStart}
-                                        startSugs={startSugs}
-                                        setStartSugs={setStartSugs}
-                                        onPickStart={onPickStart}
-                                        onSearchStart={handleSearchStart}
-                                        dragOverId={dragOverId}
-                                        isDragging={isDragging}
-                                        geocodeSuggest={geocodeSuggest}
-                                        startTimerRef={startTimerRef}
-                                        startPendingQueryRef={startPendingQueryRef}
-                                        currentPoint={startPoint}
-                                        focusOnCoordinate={focusOnCoordinate}
-                                    />
-                                    {waypointIds.map((id, idx) => (
-                                        <SortableWaypoint
-                                            key={id}
-                                            idStr={id}
-                                            idx={idx}
-                                            txt={waypointTexts[idx] || ''}
-                                            waypoints={waypoints}
-                                            setWaypoints={setWaypoints}
-                                            waypointTexts={waypointTexts}
-                                            setWaypointTexts={setWaypointTexts}
-                                            isEditingWaypoint={isEditingWaypoint}
-                                            setIsEditingWaypoint={setIsEditingWaypoint}
-                                            loadingWaypoint={loadingWaypoint}
-                                            setLoadingWaypoint={setLoadingWaypoint}
-                                            waypointSugs={waypointSugs}
-                                            setWaypointSugs={setWaypointSugs}
-                                            onPickWaypoint={onPickWaypoint}
-                                            onRemoveWaypoint={handleRemoveWaypoint}
-                                            onSearchWaypoint={handleSearchWaypoint}
-                                            onChangeWaypointText={handleChangeWaypointText}
+                                    <SortableContext items={['start', ...waypointIds, 'end']} strategy={verticalListSortingStrategy}>
+                                        <SortableStartRow
+                                            startText={startText}
+                                            setStartText={setStartText}
+                                            setStartPoint={setStartPoint}
+                                            isEditingStart={isEditingStart}
+                                            setIsEditingStart={setIsEditingStart}
+                                            loadingStart={loadingStart}
+                                            startSugs={startSugs}
+                                            setStartSugs={setStartSugs}
+                                            onPickStart={onPickStart}
+                                            onSearchStart={handleSearchStart}
                                             dragOverId={dragOverId}
                                             isDragging={isDragging}
                                             geocodeSuggest={geocodeSuggest}
-                                            waypointTimerRef={waypointTimerRef}
-                                            waypointPendingQueryRef={waypointPendingQueryRef}
+                                            startTimerRef={startTimerRef}
+                                            startPendingQueryRef={startPendingQueryRef}
+                                            currentPoint={startPoint}
                                             focusOnCoordinate={focusOnCoordinate}
                                         />
-                                    ))}
-                                    <SortableEndRow
-                                        endText={endText}
-                                        setEndText={setEndText}
-                                        setEndPoint={setEndPoint}
-                                        isEditingEnd={isEditingEnd}
-                                        setIsEditingEnd={setIsEditingEnd}
-                                        loadingEnd={loadingEnd}
-                                        endSugs={endSugs}
-                                        setEndSugs={setEndSugs}
-                                        onPickEnd={onPickEnd}
-                                        onSearchEnd={handleSearchEnd}
-                                        dragOverId={dragOverId}
-                                        isDragging={isDragging}
-                                        waypoints={waypoints}
-                                        geocodeSuggest={geocodeSuggest}
-                                        endTimerRef={endTimerRef}
-                                        endPendingQueryRef={endPendingQueryRef}
-                                        currentPoint={endPoint}
-                                        focusOnCoordinate={focusOnCoordinate}
-                                    />
-                                </SortableContext>
-                            </DndContext>
-                        </div>
-                    </div>
-
-                    {/* Profile and route calculation section */}
-                    <div className="flex items-center justify-between gap-2 mb-3">
-                        <div className="flex items-center gap-1 rounded-lg border border-gray-200 bg-gray-50 px-2 py-1">
-                            <span className="inline-flex items-center gap-1 text-[11px] font-medium text-gray-600">
-                                Phương tiện
-                            </span>
-                            <button
-                                onClick={() => setProfile('driving')}
-                                className={`flex items-center gap-2 px-3 py-2 text-xs font-medium rounded-md transition-colors ${profile === 'driving'
-                                    ? 'bg-blue-600 text-white'
-                                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                                    }`}
-                                title="Ô tô (không traffic)"
-                            >
-                                <i className="fas fa-car w-3"></i>
-                            </button>
-                            <button
-                                onClick={() => setProfile('driving-traffic')}
-                                className={`flex items-center gap-1 px-2.5 py-2 text-xs font-medium rounded-md transition-colors ${profile === 'driving-traffic'
-                                    ? 'bg-green-600 text-white'
-                                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                                    }`}
-                                title="Ô tô (với traffic)"
-                            >
-                                <i className="fas fa-car w-3"></i>
-                                <i className="fas fa-circle text-[6px] text-red-500"></i>
-                            </button>
-                            <button
-                                onClick={() => setProfile('walking')}
-                                className={`flex items-center gap-2 px-3 py-2 text-xs font-medium rounded-md transition-colors ${profile === 'walking'
-                                    ? 'bg-blue-600 text-white'
-                                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                                    }`}
-                                title="Đi bộ"
-                            >
-                                <i className="fas fa-walking w-3"></i>
-                            </button>
-                            <button
-                                onClick={() => setProfile('cycling')}
-                                className={`flex items-center gap-2 px-3 py-2 text-xs font-medium rounded-md transition-colors ${profile === 'cycling'
-                                    ? 'bg-blue-600 text-white'
-                                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                                    }`}
-                                title="Xe đạp"
-                            >
-                                <i className="fas fa-bicycle w-3"></i>
-                            </button>
-                        </div>
-                        <button
-                            onClick={() => calculateRoute()}
-                            disabled={isRouting}
-                            className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-md transition-colors flex items-center gap-2"
-                        >
-                            {isRouting ? 'Đang tìm…' : 'Tìm đường'}
-                        </button>
-                    </div>
-
-                    {routeSummary && (
-                        <div className="space-y-3 mb-4">
-                            <div className="flex items-center gap-3">
-                                <div className="bg-blue-50 border border-blue-200 px-3 py-2 rounded-lg flex-1">
-                                    <div className="text-blue-800 font-semibold text-sm">{routeSummary.distanceKm.toFixed(1)} km</div>
-                                    <div className="text-blue-600 text-xs">Khoảng cách</div>
-                                </div>
-                                <div className="bg-green-50 border border-green-200 px-3 py-2 rounded-lg flex-1">
-                                    <div className="text-green-800 font-semibold text-sm">{formatDuration(routeSummary.durationMin)}</div>
-                                    <div className="text-green-600 text-xs">Thời gian</div>
-                                </div>
+                                        {waypointIds.map((id, idx) => (
+                                            <SortableWaypoint
+                                                key={id}
+                                                idStr={id}
+                                                idx={idx}
+                                                txt={waypointTexts[idx] || ''}
+                                                waypoints={waypoints}
+                                                setWaypoints={setWaypoints}
+                                                waypointTexts={waypointTexts}
+                                                setWaypointTexts={setWaypointTexts}
+                                                isEditingWaypoint={isEditingWaypoint}
+                                                setIsEditingWaypoint={setIsEditingWaypoint}
+                                                loadingWaypoint={loadingWaypoint}
+                                                setLoadingWaypoint={setLoadingWaypoint}
+                                                waypointSugs={waypointSugs}
+                                                setWaypointSugs={setWaypointSugs}
+                                                onPickWaypoint={onPickWaypoint}
+                                                onRemoveWaypoint={handleRemoveWaypoint}
+                                                onSearchWaypoint={handleSearchWaypoint}
+                                                onChangeWaypointText={handleChangeWaypointText}
+                                                dragOverId={dragOverId}
+                                                isDragging={isDragging}
+                                                geocodeSuggest={geocodeSuggest}
+                                                waypointTimerRef={waypointTimerRef}
+                                                waypointPendingQueryRef={waypointPendingQueryRef}
+                                                focusOnCoordinate={focusOnCoordinate}
+                                            />
+                                        ))}
+                                        <SortableEndRow
+                                            endText={endText}
+                                            setEndText={setEndText}
+                                            setEndPoint={setEndPoint}
+                                            isEditingEnd={isEditingEnd}
+                                            setIsEditingEnd={setIsEditingEnd}
+                                            loadingEnd={loadingEnd}
+                                            endSugs={endSugs}
+                                            setEndSugs={setEndSugs}
+                                            onPickEnd={onPickEnd}
+                                            onSearchEnd={handleSearchEnd}
+                                            dragOverId={dragOverId}
+                                            isDragging={isDragging}
+                                            waypoints={waypoints}
+                                            geocodeSuggest={geocodeSuggest}
+                                            endTimerRef={endTimerRef}
+                                            endPendingQueryRef={endPendingQueryRef}
+                                            currentPoint={endPoint}
+                                            focusOnCoordinate={focusOnCoordinate}
+                                        />
+                                    </SortableContext>
+                                </DndContext>
                             </div>
+                        </div>
 
-                            {showSupplementalSection && (
-                                <div className="bg-white border border-gray-200 rounded-lg p-3 space-y-3">
-                                    <div className="flex items-center gap-2 text-xs font-semibold text-gray-700 uppercase tracking-wide">
-                                        <TrafficCone size={14} className="text-orange-500" />
-                                        Thông tin bổ sung
-                                    </div>
-                                    {showMetricCards && (
-                                        <div className="grid grid-cols-2 gap-2 text-xs">
-                                            {wantsDuration && (
-                                                <div className="bg-gray-50 border border-gray-200 rounded-md px-3 py-2 flex flex-col gap-1">
-                                                    <div className="flex items-center gap-2 text-[11px] font-semibold text-gray-600 uppercase">
-                                                        <span className="inline-flex items-center justify-center p-1.5 rounded-md bg-green-100 text-green-600">
-                                                            <Clock size={14} />
-                                                        </span>
-                                                        Thời gian
-                                                    </div>
-                                                    <div className="text-sm font-semibold text-gray-900">
-                                                        {durationMinutes != null ? formatDuration(durationMinutes) : 'Không có dữ liệu'}
-                                                    </div>
-                                                    {durationSubtitle ? (
-                                                        <div className="text-[11px] text-gray-500">{durationSubtitle}</div>
-                                                    ) : null}
-                                                </div>
-                                            )}
-                                            {wantsDistance && (
-                                                <div className="bg-gray-50 border border-gray-200 rounded-md px-3 py-2 flex flex-col gap-1">
-                                                    <div className="flex items-center gap-2 text-[11px] font-semibold text-gray-600 uppercase">
-                                                        <span className="inline-flex items-center justify-center p-1.5 rounded-md bg-blue-100 text-blue-600">
-                                                            <Navigation size={14} />
-                                                        </span>
-                                                        Khoảng cách
-                                                    </div>
-                                                    <div className="text-sm font-semibold text-gray-900">
-                                                        {distanceMeters != null ? formatDistance(distanceMeters) : 'Không có dữ liệu'}
-                                                    </div>
-                                                    {distanceSubtitle ? (
-                                                        <div className="text-[11px] text-gray-500">{distanceSubtitle}</div>
-                                                    ) : null}
-                                                </div>
-                                            )}
-                                            {wantsSpeed && (
-                                                <div className="bg-gray-50 border border-gray-200 rounded-md px-3 py-2 flex flex-col gap-1">
-                                                    <div className="flex items-center gap-2 text-[11px] font-semibold text-gray-600 uppercase">
-                                                        <span className="inline-flex items-center justify-center p-1.5 rounded-md bg-purple-100 text-purple-600">
-                                                            <GaugeCircle size={14} />
-                                                        </span>
-                                                        Tốc độ
-                                                    </div>
-                                                    <div className="text-sm font-semibold text-gray-900">
-                                                        {speedDisplay ?? 'Không có dữ liệu'}
-                                                    </div>
-                                                    {speedSubtitle ? (
-                                                        <div className="text-[11px] text-gray-500">{speedSubtitle}</div>
-                                                    ) : null}
-                                                </div>
-                                            )}
+                        {/* Profile and route calculation section */}
+                        <div className="flex items-center justify-between gap-2 mb-3">
+                            <div className="flex items-center gap-1 rounded-lg border border-gray-200 bg-gray-50 px-2 py-1">
+                                <span className="inline-flex items-center gap-1 text-[11px] font-medium text-gray-600">
+                                    Phương tiện
+                                </span>
+                                <button
+                                    onClick={() => setProfile('driving')}
+                                    className={`flex items-center gap-2 px-2.5 py-2 text-xs font-medium rounded-md transition-colors ${profile === 'driving'
+                                        ? 'bg-blue-600 text-white'
+                                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                                        }`}
+                                    title="Ô tô (không traffic)"
+                                >
+                                    <i className="fas fa-car w-2"></i>
+                                </button>
+                                <button
+                                    onClick={() => setProfile('driving-traffic')}
+                                    className={`flex items-center gap-1 px-2.5 py-2 text-xs font-medium rounded-md transition-colors ${profile === 'driving-traffic'
+                                        ? 'bg-blue-600 text-white'
+                                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                                        }`}
+                                    title="Ô tô (với traffic)"
+                                >
+                                    <i className="fas fa-car-on w-2"></i>
+                                </button>
+                                <button
+                                    onClick={() => setProfile('walking')}
+                                    className={`flex items-center gap-2 px-2.5 py-2 text-xs font-medium rounded-md transition-colors ${profile === 'walking'
+                                        ? 'bg-blue-600 text-white'
+                                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                                        }`}
+                                    title="Đi bộ"
+                                >
+                                    <i className="fas fa-walking w-2"></i>
+                                </button>
+                                <button
+                                    onClick={() => setProfile('cycling')}
+                                    className={`flex items-center gap-2 px-2.5 py-2 text-xs font-medium rounded-md transition-colors ${profile === 'cycling'
+                                        ? 'bg-blue-600 text-white'
+                                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                                        }`}
+                                    title="Xe đạp"
+                                >
+                                    <i className="fas fa-bicycle w-2"></i>
+                                </button>
+                            </div>
+                            <button
+                                onClick={() => calculateRoute()}
+                                disabled={isRouting}
+                                className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-md transition-colors flex items-center gap-2"
+                            >
+                                {isRouting ? 'Đang tìm…' : 'Tìm đường'}
+                            </button>
+                        </div>
+
+                        {routeSummary && (
+                            <div className="space-y-3 mb-4">
+                                {showSupplementalSection && (
+                                    <div className="bg-white border border-gray-200 rounded-lg p-3 space-y-3">
+                                        <div className="flex items-center gap-2 text-xs font-semibold text-gray-700 uppercase tracking-wide">
+                                            <TrafficCone size={14} className="text-orange-500" />
+                                            Thông tin bổ sung
                                         </div>
-                                    )}
-                                    {wantsCongestion && (
-                                        <div className="space-y-2">
-                                            <div className="text-[11px] font-semibold text-gray-600 uppercase">Tắc đường</div>
-                                            {sortedCongestionEntries.length > 0 ? (
-                                                <div className="flex flex-wrap gap-2">
-                                                    {sortedCongestionEntries.map(([level, count]) => {
-                                                        const label = CONGESTION_LABELS[level] || level;
-                                                        const badgeClass = CONGESTION_COLOR_CLASSES[level] || 'bg-gray-100 text-gray-600 border border-gray-200';
-                                                        const percentage = totalCongestionSegments > 0 ? Math.round((count / totalCongestionSegments) * 100) : null;
-                                                        return (
-                                                            <span key={level} className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-[11px] font-medium ${badgeClass}`}>
-                                                                {label}
-                                                                {percentage != null ? <span className="text-[10px] font-semibold">{percentage}%</span> : null}
+                                        {showMetricCards && (
+                                            <div className="grid grid-cols-2 gap-2 text-xs">
+                                                {wantsDuration && (
+                                                    <div className="bg-gray-50 border border-gray-200 rounded-md px-3 py-2 flex flex-col gap-1">
+                                                        <div className="flex items-center gap-2 text-[11px] font-semibold text-gray-600 uppercase">
+                                                            <span className="inline-flex items-center justify-center p-1.5 rounded-md bg-green-100 text-green-600">
+                                                                <Clock size={14} />
                                                             </span>
-                                                        );
-                                                    })}
-                                                </div>
-                                            ) : (
-                                                <div className="text-[11px] text-gray-400 italic">Không có dữ liệu tắc đường</div>
-                                            )}
-                                            {totalCongestionSegments > 0 ? (
-                                                <div className="text-[10px] text-gray-400">Dựa trên {totalCongestionSegments} đoạn tuyến</div>
-                                            ) : null}
-                                        </div>
-                                    )}
-                                </div>
-                            )}
-
-                            {routeAlternatives.length > 1 && (
-                                <div className="bg-white border border-gray-200 rounded-lg p-3">
-                                    <div className="flex items-center justify-between mb-2">
-                                        <div className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Các tuyến khả dụng</div>
-                                        <div className="text-[11px] text-gray-400">Chọn tuyến tốt nhất cho bạn</div>
+                                                            Thời gian
+                                                        </div>
+                                                        <div className="text-sm font-semibold text-gray-900">
+                                                            {durationMinutes != null ? formatDuration(durationMinutes) : 'Không có dữ liệu'}
+                                                        </div>
+                                                        {durationSubtitle ? (
+                                                            <div className="text-[11px] text-gray-500">{durationSubtitle}</div>
+                                                        ) : null}
+                                                    </div>
+                                                )}
+                                                {wantsDistance && (
+                                                    <div className="bg-gray-50 border border-gray-200 rounded-md px-3 py-2 flex flex-col gap-1">
+                                                        <div className="flex items-center gap-2 text-[11px] font-semibold text-gray-600 uppercase">
+                                                            <span className="inline-flex items-center justify-center p-1.5 rounded-md bg-blue-100 text-blue-600">
+                                                                <Navigation size={14} />
+                                                            </span>
+                                                            Khoảng cách
+                                                        </div>
+                                                        <div className="text-sm font-semibold text-gray-900">
+                                                            {distanceMeters != null ? formatDistance(distanceMeters) : 'Không có dữ liệu'}
+                                                        </div>
+                                                        {distanceSubtitle ? (
+                                                            <div className="text-[11px] text-gray-500">{distanceSubtitle}</div>
+                                                        ) : null}
+                                                    </div>
+                                                )}
+                                                {wantsSpeed && (
+                                                    <div className="bg-gray-50 border border-gray-200 rounded-md px-3 py-2 flex flex-col gap-1">
+                                                        <div className="flex items-center gap-2 text-[11px] font-semibold text-gray-600 uppercase">
+                                                            <span className="inline-flex items-center justify-center p-1.5 rounded-md bg-purple-100 text-purple-600">
+                                                                <GaugeCircle size={14} />
+                                                            </span>
+                                                            Tốc độ
+                                                        </div>
+                                                        <div className="text-sm font-semibold text-gray-900">
+                                                            {speedDisplay ?? 'Không có dữ liệu'}
+                                                        </div>
+                                                        {speedSubtitle ? (
+                                                            <div className="text-[11px] text-gray-500">{speedSubtitle}</div>
+                                                        ) : null}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
+                                        {wantsCongestion && (
+                                            <div className="space-y-2">
+                                                <div className="text-[11px] font-semibold text-gray-600 uppercase">Tắc đường</div>
+                                                {sortedCongestionEntries.length > 0 ? (
+                                                    <div className="flex flex-wrap gap-2">
+                                                        {sortedCongestionEntries.map(([level, count]) => {
+                                                            const label = CONGESTION_LABELS[level] || level;
+                                                            const badgeClass = CONGESTION_COLOR_CLASSES[level] || 'bg-gray-100 text-gray-600 border border-gray-200';
+                                                            const percentage = totalCongestionSegments > 0 ? Math.round((count / totalCongestionSegments) * 100) : null;
+                                                            return (
+                                                                <span key={level} className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-[11px] font-medium ${badgeClass}`}>
+                                                                    {label}
+                                                                    {percentage != null ? <span className="text-[10px] font-semibold">{percentage}%</span> : null}
+                                                                </span>
+                                                            );
+                                                        })}
+                                                    </div>
+                                                ) : (
+                                                    <div className="text-[11px] text-gray-400 italic">Không có dữ liệu tắc đường</div>
+                                                )}
+                                                {totalCongestionSegments > 0 ? (
+                                                    <div className="text-[10px] text-gray-400">Dựa trên {totalCongestionSegments} đoạn tuyến</div>
+                                                ) : null}
+                                            </div>
+                                        )}
                                     </div>
-                                    <div className="space-y-2">
-                                        {routeAlternatives.map((alt) => {
-                                            const isActive = alt.index === selectedRouteIndex;
-                                            return (
-                                                <button
-                                                    key={alt.index}
-                                                    className={`w-full text-left px-3 py-2 rounded-md border transition-colors flex items-center gap-3 text-xs ${isActive
-                                                        ? 'border-blue-500 bg-blue-50 text-blue-800'
-                                                        : 'border-gray-200 bg-white hover:bg-gray-50 text-gray-700'
-                                                        }`}
-                                                    onClick={() => onSelectRoute(alt.index)}
-                                                >
-                                                    <div className="flex-1 min-w-0">
-                                                        <div className="truncate font-medium">{alt.summary || `Tuyến ${alt.index + 1}`}</div>
-                                                        <div className="text-[11px] text-gray-500 flex items-center gap-3">
-                                                            <span>{alt.distanceKm.toFixed(1)} km</span>
-                                                            <span className="h-1.5 w-1.5 rounded-full bg-gray-300" />
-                                                            <span>{formatDuration(alt.durationMin)}</span>
+                                )}
+
+                                {routeAlternatives.length > 1 && (
+                                    <div className="bg-white border border-gray-200 rounded-lg p-3">
+                                        <div className="flex items-center justify-between mb-2">
+                                            <div className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Các tuyến khả dụng</div>
+                                            <div className="text-[11px] text-gray-400">Chọn tuyến tốt nhất cho bạn</div>
+                                        </div>
+                                        <div className="space-y-2">
+                                            {routeAlternatives.map((alt) => {
+                                                const isActive = alt.index === selectedRouteIndex;
+                                                return (
+                                                    <button
+                                                        key={alt.index}
+                                                        className={`w-full text-left px-3 py-2 rounded-md border transition-colors flex items-center gap-3 text-xs ${isActive
+                                                            ? 'border-blue-500 bg-blue-50 text-blue-800'
+                                                            : 'border-gray-200 bg-white hover:bg-gray-50 text-gray-700'
+                                                            }`}
+                                                        onClick={() => onSelectRoute(alt.index)}
+                                                    >
+                                                        <div className="flex-1 min-w-0">
+                                                            <div className="truncate font-medium">{alt.summary || `Tuyến ${alt.index + 1}`}</div>
+                                                            <div className="text-[11px] text-gray-500 flex items-center gap-3">
+                                                                <span>{alt.distanceKm.toFixed(1)} km</span>
+                                                                <span className="h-1.5 w-1.5 rounded-full bg-gray-300" />
+                                                                <span>{formatDuration(alt.durationMin)}</span>
+                                                            </div>
+                                                        </div>
+                                                        {isActive ? (
+                                                            <span className="text-[11px] font-semibold text-blue-600 uppercase">Đang chọn</span>
+                                                        ) : (
+                                                            <span className="text-[11px] text-gray-400">Chọn</span>
+                                                        )}
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        {/* Directions section */}
+                        <div className="mt-4">
+                            <AdvancedRoutingPanel
+                                profile={profile}
+                                onCalculateRoute={handleCalculateRoute}
+                                isRouting={isRouting}
+                            />
+
+                            <div className="max-h-64 overflow-auto">
+                                <h3 className="flex text-sm font-semibold mb-3 text-gray-800 items-center justify-between gap-2">
+                                    <div className='inline-flex items-center gap-2'>
+                                        <List size={16} className="text-green-600" />
+                                        Chỉ đường
+                                    </div>
+                                    <div>
+                                        <button
+                                            onClick={onStartGuidance}
+                                            disabled={!instructions || instructions.length === 0}
+                                            className="bg-green-600 hover:bg-green-700 disabled:opacity-20 text-white text-sm font-medium px-4 py-2 rounded-md transition-colors flex items-center gap-2"
+                                            title="Bắt đầu chỉ đường"
+                                        >
+                                            <Navigation size={16} />
+                                            Bắt đầu
+                                        </button>
+                                    </div>
+
+                                </h3>
+                                {(!instructions || instructions.length === 0) ? (
+                                    <div className="text-sm text-gray-500 text-center py-4 bg-gray-50 rounded-lg">
+                                        Chưa có hướng dẫn. Nhấn "Tìm đường" để bắt đầu.
+                                    </div>
+                                ) : (
+                                    <ol className="space-y-2">
+                                        {instructions.map((step: any, index: number) => (
+                                            <li
+                                                key={index}
+                                                className={`rounded border p-2 text-xs cursor-pointer transition-colors ${activeStepIdx === index ? 'bg-blue-50 border-blue-300' : 'bg-white border-gray-200 hover:bg-gray-50'
+                                                    }`}
+                                                onClick={() => focusStep(index)}
+                                            >
+                                                <div className="flex items-start justify-between gap-3">
+                                                    <div className="flex items-start gap-2">
+                                                        <span className={`inline-flex items-center justify-center w-5 h-5 rounded-full text-[10px] font-semibold ${activeStepIdx === index ? 'bg-blue-200 text-blue-900' : 'bg-gray-100 text-gray-700'
+                                                            }`}>
+                                                            {index + 1}
+                                                        </span>
+                                                        <div>
+                                                            <div className="font-medium text-gray-800">{formatInstructionVI(step)}</div>
+                                                            {!!step?.name && <div className="text-[10px] text-gray-500">{step.name}</div>}
                                                         </div>
                                                     </div>
-                                                    {isActive ? (
-                                                        <span className="text-[11px] font-semibold text-blue-600 uppercase">Đang chọn</span>
-                                                    ) : (
-                                                        <span className="text-[11px] text-gray-400">Chọn</span>
-                                                    )}
-                                                </button>
-                                            );
-                                        })}
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-                    )}
-
-                    {/* Directions section */}
-                    <div className="mt-4">
-                        <AdvancedRoutingPanel
-                            profile={profile}
-                            onCalculateRoute={handleCalculateRoute}
-                            isRouting={isRouting}
-                        />
-
-                        <div className="max-h-64 overflow-auto">
-                            <h3 className="text-sm font-semibold text-gray-800 mb-3 inline-flex items-center gap-2">
-                                <List size={16} className="text-purple-600" />
-                                Hướng dẫn từng bước
-                                <button
-                                    onClick={onStartGuidance}
-                                    disabled={!instructions || instructions.length === 0}
-                                    className="bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-md transition-colors flex items-center gap-2"
-                                    title="Bắt đầu chỉ đường"
-                                >
-                                    <Navigation size={16} />
-                                    Chỉ đường
-                                </button>
-                            </h3>
-                            {(!instructions || instructions.length === 0) ? (
-                                <div className="text-sm text-gray-500 text-center py-4 bg-gray-50 rounded-lg">
-                                    Chưa có hướng dẫn. Nhấn "Tìm đường" để bắt đầu.
-                                </div>
-                            ) : (
-                                <ol className="space-y-2">
-                                    {instructions.map((step: any, index: number) => (
-                                        <li
-                                            key={index}
-                                            className={`rounded border p-2 text-xs cursor-pointer transition-colors ${activeStepIdx === index ? 'bg-blue-50 border-blue-300' : 'bg-white border-gray-200 hover:bg-gray-50'
-                                                }`}
-                                            onClick={() => focusStep(index)}
-                                        >
-                                            <div className="flex items-start justify-between gap-3">
-                                                <div className="flex items-start gap-2">
-                                                    <span className={`inline-flex items-center justify-center w-5 h-5 rounded-full text-[10px] font-semibold ${activeStepIdx === index ? 'bg-blue-200 text-blue-900' : 'bg-gray-100 text-gray-700'
-                                                        }`}>
-                                                        {index + 1}
-                                                    </span>
-                                                    <div>
-                                                        <div className="font-medium text-gray-800">{formatInstructionVI(step)}</div>
-                                                        {!!step?.name && <div className="text-[10px] text-gray-500">{step.name}</div>}
+                                                    <div className="text-[10px] text-gray-600 whitespace-nowrap">
+                                                        {formatDistance(step?.distance || 0)}
                                                     </div>
                                                 </div>
-                                                <div className="text-[10px] text-gray-600 whitespace-nowrap">
-                                                    {formatDistance(step?.distance || 0)}
-                                                </div>
-                                            </div>
-                                        </li>
-                                    ))}
-                                </ol>
-                            )}
+                                            </li>
+                                        ))}
+                                    </ol>
+                                )}
+                            </div>
                         </div>
+
                     </div>
                 </div>
             )}
         </div>
-    );
+    )
 };
