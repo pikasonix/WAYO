@@ -1008,7 +1008,7 @@ export const ControlsPanel: React.FC<ControlsPanelProps> = ({
     const hasInstructions = Array.isArray(instructions) && instructions.length > 0;
 
     return (
-        <div className="absolute top-32 left-3 z-[360]">
+        <div className="absolute top-33 left-3 z-[360]">
             {isCollapsed ? (
                 <div className="bg-white/95 backdrop-blur rounded-lg shadow border border-gray-200 w-16 flex flex-col items-center py-3 space-y-3">
                     <button

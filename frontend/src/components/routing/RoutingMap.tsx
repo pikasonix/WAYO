@@ -39,6 +39,131 @@ interface AdvancedOptions {
     engine?: string;
 }
 
+type CongestionCategory = 'unknown' | 'low' | 'moderate' | 'heavy' | 'severe';
+
+const toMsFromUnit = (value: number, unit?: string | null): number => {
+    if (!Number.isFinite(value)) return value;
+    const normalizedUnit = unit?.toLowerCase() ?? 'km/h';
+    switch (normalizedUnit) {
+        case 'm/s':
+        case 'meter/second':
+        case 'meters/second':
+            return value;
+        case 'km/h':
+        case 'kph':
+        case 'kilometers per hour':
+        case 'kilometres per hour':
+            return value / 3.6;
+        case 'mph':
+        case 'mi/h':
+        case 'miles per hour':
+            return value * 0.44704;
+        case 'knots':
+            return value * 0.514444;
+        default:
+            return value / 3.6;
+    }
+};
+
+const extractMaxSpeedMs = (entry: any): number | null => {
+    if (!entry || typeof entry !== 'object' || entry.unknown) return null;
+    const candidates = [entry.speed, entry.speed_limit, entry.maxspeed, entry.value];
+    const maxValue = candidates.find((val) => typeof val === 'number' && Number.isFinite(val)) as number | undefined;
+    if (typeof maxValue !== 'number') return null;
+    const unit = entry.unit || entry.speed_unit || entry.maxspeed_unit;
+    return toMsFromUnit(maxValue, unit);
+};
+
+const congestionNumericToCategory = (value?: number | null): CongestionCategory => {
+    if (value == null || Number.isNaN(value)) return 'unknown';
+    const numeric = Math.round(value);
+    switch (numeric) {
+        case 1:
+            return 'low';
+        case 2:
+            return 'moderate';
+        case 3:
+            return 'heavy';
+        case 4:
+            return 'severe';
+        default:
+            return 'unknown';
+    }
+};
+
+interface CongestionContext {
+    speedMs?: number | null;
+    maxSpeedMs?: number | null;
+    distanceM?: number | null;
+    durationSec?: number | null;
+}
+
+const normalizeCongestionCategory = (
+    raw?: string | null,
+    numeric?: number | null,
+    context: CongestionContext = {}
+): CongestionCategory => {
+    const rawNormalized = typeof raw === 'string' ? raw.toLowerCase().trim() : '';
+    let normalized: CongestionCategory = 'unknown';
+
+    if (rawNormalized.includes('severe')) {
+        normalized = 'severe';
+    } else if (rawNormalized.includes('heavy')) {
+        normalized = 'heavy';
+    } else if (rawNormalized.includes('moderate')) {
+        normalized = 'moderate';
+    } else if (rawNormalized.includes('slow')) {
+        normalized = 'moderate';
+    } else if (rawNormalized.includes('light') || rawNormalized.includes('free') || rawNormalized.includes('low')) {
+        normalized = 'low';
+    }
+
+    if (normalized === 'unknown') {
+        const byNumeric = congestionNumericToCategory(numeric);
+        if (byNumeric !== 'unknown') {
+            normalized = byNumeric;
+        }
+    }
+
+    if (normalized === 'unknown') {
+        const { speedMs, maxSpeedMs, distanceM, durationSec } = context;
+        let effectiveSpeedMs: number | null = null;
+
+        if (typeof speedMs === 'number' && Number.isFinite(speedMs)) {
+            effectiveSpeedMs = speedMs;
+        } else if (
+            typeof distanceM === 'number' && Number.isFinite(distanceM) &&
+            typeof durationSec === 'number' && Number.isFinite(durationSec) && durationSec > 0
+        ) {
+            effectiveSpeedMs = distanceM / durationSec;
+        }
+
+        if (effectiveSpeedMs != null && Number.isFinite(effectiveSpeedMs)) {
+            const speedKmh = effectiveSpeedMs * 3.6;
+            const maxMs = typeof maxSpeedMs === 'number' && Number.isFinite(maxSpeedMs) && maxSpeedMs > 0
+                ? maxSpeedMs
+                : undefined;
+
+            if (maxMs) {
+                const ratio = effectiveSpeedMs / maxMs;
+                if (ratio <= 0.25) normalized = 'severe';
+                else if (ratio <= 0.4) normalized = 'heavy';
+                else if (ratio <= 0.65) normalized = 'moderate';
+                else if (ratio <= 0.85) normalized = 'low';
+                else normalized = 'low';
+            } else {
+                if (speedKmh <= 10) normalized = 'severe';
+                else if (speedKmh <= 20) normalized = 'heavy';
+                else if (speedKmh <= 35) normalized = 'moderate';
+                else if (speedKmh <= 55) normalized = 'low';
+                else normalized = 'low';
+            }
+        }
+    }
+
+    return normalized;
+};
+
 export default function RoutingMap() {
     const mapContainer = useRef<HTMLDivElement | null>(null);
     const mapRef = useRef<mapboxgl.Map | null>(null);
@@ -47,13 +172,16 @@ export default function RoutingMap() {
     const [angled, setAngled] = useState(true);
     const [courseUp] = useState(true);
     const [isTrafficVisible, setIsTrafficVisible] = useState(false);
+    const [isCongestionVisible, setIsCongestionVisible] = useState(true);
     // Routing state
     type Profile = 'driving' | 'walking' | 'cycling' | 'driving-traffic';
     const routeSourceId = 'route-line';
     const stepSourceId = 'step-line';
+    const congestionSourceId = 'congestion-line';
     const routeDataRef = useRef<FeatureCollection<Geometry> | null>(null);
     const routesRef = useRef<any[]>([]);
     const stepDataRef = useRef<FeatureCollection<Geometry> | null>(null);
+    const congestionDataRef = useRef<FeatureCollection<Geometry> | null>(null);
     const startMarkerRef = useRef<mapboxgl.Marker | null>(null);
     const endMarkerRef = useRef<mapboxgl.Marker | null>(null);
     const viaMarkersRef = useRef<mapboxgl.Marker[]>([]);
@@ -76,7 +204,7 @@ export default function RoutingMap() {
     const [startPoint, setStartPoint] = useState<{ lat: number; lng: number } | null>(null);
     const [endPoint, setEndPoint] = useState<{ lat: number; lng: number } | null>(null);
     const [waypoints, setWaypoints] = useState<Array<{ lat: number; lng: number }>>([]);
-    const [profile, setProfile] = useState<Profile>('driving');
+    const [profile, setProfile] = useState<Profile>('driving-traffic');
     const [routes, setRoutes] = useState<any[]>([]);
     const [selectedRouteIdx, setSelectedRouteIdx] = useState<number>(0);
     const [instructions, setInstructions] = useState<any[]>([]);
@@ -101,7 +229,7 @@ export default function RoutingMap() {
     const [isRouting, setIsRouting] = useState(false);
     const [routeSummary, setRouteSummary] = useState<{ distanceKm: number; durationMin: number } | null>(null);
     const [annotationMetrics, setAnnotationMetrics] = useState<AnnotationMetrics>({});
-    const [selectedAnnotations, setSelectedAnnotations] = useState<string[]>(['duration', 'distance', 'speed']);
+    const [selectedAnnotations, setSelectedAnnotations] = useState<string[]>(['duration', 'distance', 'speed', 'maxspeed', 'congestion', 'congestion_numeric']);
     const [activeStepIdx, setActiveStepIdx] = useState<number | null>(null);
     const [guidanceMode, setGuidanceMode] = useState<boolean>(false);
     const [headingDeg, setHeadingDeg] = useState<number>(0);
@@ -503,6 +631,41 @@ export default function RoutingMap() {
                         layout: { 'line-cap': 'round', 'line-join': 'round' }
                     });
                 }
+
+                // Add congestion source and layer
+                if (!mapRef.current.getSource(congestionSourceId)) {
+                    mapRef.current.addSource(congestionSourceId, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+                    mapRef.current.addLayer({
+                        id: 'congestion-line-layer',
+                        type: 'line',
+                        source: congestionSourceId,
+                        paint: {
+                            'line-color': [
+                                'case',
+                                ['==', ['get', 'congestion'], 'severe'], '#dc2626',
+                                ['==', ['get', 'congestion'], 'heavy'], '#f97316',
+                                ['==', ['get', 'congestion'], 'moderate'], '#facc15',
+                                ['==', ['get', 'congestion'], 'low'], '#22c55e',
+                                ['==', ['get', 'congestion'], 'unknown'], '#94a3b8',
+                                '#22c55e'
+                            ],
+                            'line-width': [
+                                'interpolate',
+                                ['linear'],
+                                ['zoom'],
+                                10, 8,
+                                13, 12,
+                                16, 18,
+                                19, 32
+                            ],
+                            'line-opacity': 0.85
+                        },
+                        layout: { 'line-cap': 'round', 'line-join': 'round' }
+                    }, 'route-line-layer'); // Add below main route layer
+
+                    // Initially show congestion layer
+                    mapRef.current?.setLayoutProperty('congestion-line-layer', 'visibility', 'visible');
+                }
                 try {
                     if (routeDataRef.current) (mapRef.current.getSource(routeSourceId) as mapboxgl.GeoJSONSource)?.setData(routeDataRef.current);
                     if (stepDataRef.current) (mapRef.current.getSource(stepSourceId) as mapboxgl.GeoJSONSource)?.setData(stepDataRef.current);
@@ -641,6 +804,124 @@ export default function RoutingMap() {
         setIsTrafficVisible(newVisibility === 'visible');
     }, []);
 
+    const toggleCongestion = useCallback(() => {
+        if (!mapRef.current) return;
+
+        const layer = mapRef.current.getLayer('congestion-line-layer');
+        if (!layer) {
+            console.warn('⚠️ Congestion layer not found');
+            return;
+        }
+
+        const currentVisibility = mapRef.current.getLayoutProperty('congestion-line-layer', 'visibility');
+        const newVisibility = currentVisibility === 'visible' ? 'none' : 'visible';
+
+        console.log('🚦 Toggling congestion visibility:', currentVisibility, '->', newVisibility);
+
+        mapRef.current.setLayoutProperty('congestion-line-layer', 'visibility', newVisibility);
+        setIsCongestionVisible(newVisibility === 'visible');
+
+        // Also log current congestion data
+        console.log('📊 Current congestion data:', congestionDataRef.current);
+    }, []);
+
+    const createCongestionSegments = useCallback((route: any): FeatureCollection<Geometry> => {
+        const features: Feature<LineString>[] = [];
+
+        if (!route?.legs || !Array.isArray(route.legs) || !route?.geometry?.coordinates) {
+            console.warn('⚠️ Invalid route data for congestion rendering', route);
+            return { type: 'FeatureCollection', features };
+        }
+
+        const routeCoords: [number, number][] = route.geometry.coordinates;
+        let coordIndex = 0;
+
+        console.log('📍 Total route coordinates:', routeCoords.length);
+
+        route.legs.forEach((leg: any, legIndex: number) => {
+            const congestionData: string[] = Array.isArray(leg?.annotation?.congestion)
+                ? leg.annotation.congestion
+                : [];
+            const congestionNumericData: number[] = Array.isArray(leg?.annotation?.congestion_numeric)
+                ? leg.annotation.congestion_numeric
+                : [];
+            const durationData: number[] = Array.isArray(leg?.annotation?.duration)
+                ? leg.annotation.duration
+                : [];
+            const distanceData: number[] = Array.isArray(leg?.annotation?.distance)
+                ? leg.annotation.distance
+                : [];
+            const speedData: number[] = Array.isArray(leg?.annotation?.speed)
+                ? leg.annotation.speed
+                : [];
+            const maxSpeedData: any[] = Array.isArray(leg?.annotation?.maxspeed)
+                ? leg.annotation.maxspeed
+                : [];
+
+            console.log(`🦵 Leg ${legIndex} congestion segments:`, congestionData.length, congestionData);
+            console.log(`🧮 Leg ${legIndex} numeric congestion:`, congestionNumericData.length, congestionNumericData);
+
+            congestionData.forEach((congestion: string, segmentOffset: number) => {
+                const globalIndex = coordIndex + segmentOffset;
+                if (globalIndex >= routeCoords.length - 1) {
+                    console.warn('⚠️ Congestion segment index exceeds coordinates length', {
+                        legIndex,
+                        segmentOffset,
+                        globalIndex,
+                        coordsLength: routeCoords.length
+                    });
+                    return;
+                }
+
+                const startCoord = routeCoords[globalIndex];
+                const endCoord = routeCoords[globalIndex + 1];
+                if (!startCoord || !endCoord) {
+                    return;
+                }
+
+                const numericValue = Array.isArray(congestionNumericData)
+                    ? congestionNumericData[segmentOffset]
+                    : undefined;
+
+                const durationValue = Array.isArray(durationData) ? durationData[segmentOffset] : undefined;
+                const distanceValue = Array.isArray(distanceData) ? distanceData[segmentOffset] : undefined;
+                const speedValue = Array.isArray(speedData) ? speedData[segmentOffset] : undefined;
+
+                const rawMaxEntry = Array.isArray(maxSpeedData) ? maxSpeedData[segmentOffset] : undefined;
+                const maxSpeedMs = extractMaxSpeedMs(rawMaxEntry);
+
+                const normalizedCongestion = normalizeCongestionCategory(congestion, numericValue, {
+                    speedMs: typeof speedValue === 'number' && Number.isFinite(speedValue) ? speedValue : undefined,
+                    distanceM: typeof distanceValue === 'number' && Number.isFinite(distanceValue) ? distanceValue : undefined,
+                    durationSec: typeof durationValue === 'number' && Number.isFinite(durationValue) ? durationValue : undefined,
+                    maxSpeedMs: maxSpeedMs ?? undefined,
+                });
+
+                features.push({
+                    type: 'Feature',
+                    geometry: {
+                        type: 'LineString',
+                        coordinates: [startCoord, endCoord]
+                    },
+                    properties: {
+                        congestion: normalizedCongestion,
+                        congestion_numeric: numericValue ?? null,
+                        segmentIndex: segmentOffset,
+                        legIndex,
+                        coordIndex: globalIndex
+                    }
+                } as Feature<LineString>);
+            });
+
+            coordIndex += congestionData.length;
+        });
+
+        console.log(`✅ Created ${features.length} congestion segments`);
+        console.log('🚦 Congestion types found:', [...new Set(features.map(f => f.properties?.congestion))]);
+
+        return { type: 'FeatureCollection', features };
+    }, []);
+
     const createVehicleElement = useCallback((color: string = '#0ea5e9') => {
         const el = document.createElement('div');
         el.style.width = '36px';
@@ -679,6 +960,9 @@ export default function RoutingMap() {
                 const stepSrc = mapRef.current.getSource(stepSourceId) as mapboxgl.GeoJSONSource | undefined;
                 stepDataRef.current = { type: 'FeatureCollection', features: [] };
                 stepSrc?.setData(stepDataRef.current);
+                const congestionSrc = mapRef.current.getSource(congestionSourceId) as mapboxgl.GeoJSONSource | undefined;
+                congestionDataRef.current = { type: 'FeatureCollection', features: [] };
+                congestionSrc?.setData(congestionDataRef.current);
             }
             return;
         }
@@ -716,6 +1000,9 @@ export default function RoutingMap() {
         if (mapRef.current) {
             const stepSrc = mapRef.current.getSource(stepSourceId) as mapboxgl.GeoJSONSource | undefined;
             stepSrc?.setData(emptySteps);
+            const congestionSrc = mapRef.current.getSource(congestionSourceId) as mapboxgl.GeoJSONSource | undefined;
+            congestionDataRef.current = emptySteps;
+            congestionSrc?.setData(emptySteps);
         }
 
         if (openStepPopupRef.current) { openStepPopupRef.current.remove(); openStepPopupRef.current = null; }
@@ -768,16 +1055,28 @@ export default function RoutingMap() {
             const congestionCounts: Record<string, number> = {};
             let congestionSamples = 0;
             legs.forEach((leg: any) => {
-                const arr = leg?.annotation?.congestion;
-                if (Array.isArray(arr)) {
-                    arr.forEach((val: any) => {
-                        if (typeof val === 'string' && val.trim().length > 0) {
-                            const normalized = val.toLowerCase();
-                            congestionCounts[normalized] = (congestionCounts[normalized] ?? 0) + 1;
-                            congestionSamples++;
+                const arr = Array.isArray(leg?.annotation?.congestion) ? leg.annotation.congestion : [];
+                const numericArr = Array.isArray(leg?.annotation?.congestion_numeric) ? leg.annotation.congestion_numeric : [];
+                const durationArr = Array.isArray(leg?.annotation?.duration) ? leg.annotation.duration : [];
+                const distanceArr = Array.isArray(leg?.annotation?.distance) ? leg.annotation.distance : [];
+                const speedArr = Array.isArray(leg?.annotation?.speed) ? leg.annotation.speed : [];
+                const maxSpeedArr = Array.isArray(leg?.annotation?.maxspeed) ? leg.annotation.maxspeed : [];
+                arr.forEach((val: any, idx: number) => {
+                    const normalized = normalizeCongestionCategory(
+                        typeof val === 'string' ? val : undefined,
+                        numericArr[idx],
+                        {
+                            durationSec: durationArr[idx],
+                            distanceM: distanceArr[idx],
+                            speedMs: speedArr[idx],
+                            maxSpeedMs: extractMaxSpeedMs(maxSpeedArr[idx]),
                         }
-                    });
-                }
+                    );
+                    if (normalized && normalized.trim().length > 0) {
+                        congestionCounts[normalized] = (congestionCounts[normalized] ?? 0) + 1;
+                        congestionSamples++;
+                    }
+                });
             });
             if (congestionSamples > 0) {
                 metrics.congestionLevels = congestionCounts;
@@ -807,6 +1106,14 @@ export default function RoutingMap() {
         }
 
         setAnnotationMetrics(metrics);
+
+        // Create congestion segments for visualization
+        const congestionFeatures = createCongestionSegments(primaryRoute);
+        congestionDataRef.current = congestionFeatures;
+        if (mapRef.current) {
+            const congestionSrc = mapRef.current.getSource(congestionSourceId) as mapboxgl.GeoJSONSource | undefined;
+            congestionSrc?.setData(congestionFeatures);
+        }
 
         const steps = legs.flatMap((leg: any) => {
             const legSteps: any[] = Array.isArray(leg?.steps) ? leg.steps : [];
@@ -1162,9 +1469,15 @@ export default function RoutingMap() {
         const rawAnnotations = Array.isArray(advancedOptions?.annotations)
             ? advancedOptions.annotations.filter((item): item is string => typeof item === 'string')
             : undefined;
-        const requestedAnnotations = rawAnnotations !== undefined
-            ? Array.from(new Set(rawAnnotations))
-            : ['duration', 'distance', 'speed'];
+        const requestedAnnotations = Array.from(new Set([
+            ...(rawAnnotations ?? []),
+            'duration',
+            'distance',
+            'speed',
+            'maxspeed',
+            'congestion',
+            'congestion_numeric',
+        ]));
         setSelectedAnnotations(requestedAnnotations);
         setAnnotationMetrics({});
         setIsRouting(true);
@@ -1210,11 +1523,6 @@ export default function RoutingMap() {
                 params.set('exclude', advancedOptions.exclude.join(','));
             }
 
-            // Annotations
-            if (advancedOptions.annotations && advancedOptions.annotations.length > 0) {
-                params.set('annotations', advancedOptions.annotations.join(','));
-            }
-
             // Time-based routing
             if (advancedOptions.depart_at) {
                 params.set('depart_at', new Date(advancedOptions.depart_at).toISOString());
@@ -1247,26 +1555,43 @@ export default function RoutingMap() {
                 params.set('approaches', new Array(allPoints.length).fill('unrestricted').join(';'));
             }
         } else {
-            // Default options for basic routing
+            // Default options for basic routing - force driving-traffic for congestion data
             params.set('alternatives', 'false');
             params.set('geometries', 'geojson');
             params.set('overview', 'full');
             params.set('steps', 'true');
-            params.set('annotations', 'maxspeed');
             params.set('language', 'vi'); // Default to Vietnamese
         }
 
+        params.set('annotations', requestedAnnotations.join(','));
         params.set('access_token', token || '');
         url += params.toString();
+        console.log('🚗 Making routing request with URL:', url);
+
         try {
             const res = await fetch(url);
             const data = await res.json();
+
+            console.log('📦 Full API Response:', data);
+            console.log('📊 First route legs:', data?.routes?.[0]?.legs);
+
             if (Array.isArray(data?.routes) && data.routes.length > 0) {
+                // Log congestion data for debugging
+                data.routes.forEach((route: any, index: number) => {
+                    console.log(`🛣️ Route ${index} legs:`, route.legs?.length);
+                    route.legs?.forEach((leg: any, legIndex: number) => {
+                        const congestion = leg?.annotation?.congestion;
+                        console.log(`  Leg ${legIndex} congestion:`, congestion?.length, 'segments');
+                        console.log(`  Congestion types:`, [...new Set(congestion || [])]);
+                    });
+                });
+
                 setRoutes(data.routes);
                 routesRef.current = data.routes;
                 setSelectedRouteIdx(0);
                 applyRouteSelection(data.routes, 0, true);
             } else {
+                console.error('❌ No routes found in API response:', data);
                 setRoutes([]);
                 routesRef.current = [];
                 alert('Không tìm thấy tuyến đường.');
@@ -1739,6 +2064,8 @@ export default function RoutingMap() {
                 onPinMyLocation={handlePinMyLocation}
                 toggleTraffic={toggleTraffic}
                 isTrafficVisible={isTrafficVisible}
+                toggleCongestion={toggleCongestion}
+                isCongestionVisible={isCongestionVisible}
             />
             {error ? (
                 <div className="p-4 text-red-600 text-sm">{error}</div>

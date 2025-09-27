@@ -10,7 +10,8 @@ import {
     MessageSquare,
     RotateCcw,
     RotateCw,
-    TrafficCone
+    TrafficCone,
+    Activity
 } from 'lucide-react';
 
 type ToolbarProps = {
@@ -28,6 +29,8 @@ type ToolbarProps = {
     onPinMyLocation: () => void;
     toggleTraffic?: () => void;
     isTrafficVisible?: boolean;
+    toggleCongestion?: () => void;
+    isCongestionVisible?: boolean;
 };
 
 export const Toolbar: React.FC<ToolbarProps> = ({
@@ -44,7 +47,9 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     onResetNorth,
     onPinMyLocation,
     toggleTraffic,
-    isTrafficVisible
+    isTrafficVisible,
+    toggleCongestion,
+    isCongestionVisible
 }) => {
     const rotateLeftTimer = useRef<number | null>(null);
     const rotateRightTimer = useRef<number | null>(null);
@@ -104,6 +109,16 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                         >
                             <TrafficCone size={14} />
                             <span>Traffic</span>
+                        </button>
+                    )}
+                    {toggleCongestion && (
+                        <button
+                            onClick={toggleCongestion}
+                            className={`inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-medium shadow-sm ${isCongestionVisible ? 'bg-orange-500 text-white' : 'bg-white text-gray-700'}`}
+                            title={isCongestionVisible ? 'Ẩn thông tin kẹt xe trên tuyến' : 'Hiển thị thông tin kẹt xe trên tuyến'}
+                        >
+                            <Activity size={14} />
+                            <span>Kẹt xe</span>
                         </button>
                     )}
                 </div>
