@@ -9,7 +9,8 @@ import {
     Maximize,
     MessageSquare,
     RotateCcw,
-    RotateCw
+    RotateCw,
+    TrafficCone
 } from 'lucide-react';
 
 type ToolbarProps = {
@@ -25,6 +26,8 @@ type ToolbarProps = {
     onRotateRight: () => void;
     onResetNorth: () => void;
     onPinMyLocation: () => void;
+    toggleTraffic?: () => void;
+    isTrafficVisible?: boolean;
 };
 
 export const Toolbar: React.FC<ToolbarProps> = ({
@@ -39,7 +42,9 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     onRotateLeft,
     onRotateRight,
     onResetNorth,
-    onPinMyLocation
+    onPinMyLocation,
+    toggleTraffic,
+    isTrafficVisible
 }) => {
     const rotateLeftTimer = useRef<number | null>(null);
     const rotateRightTimer = useRef<number | null>(null);
@@ -91,6 +96,16 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                         <ScanEye size={14} />
                         <span>{angled ? 'Nghiêng' : 'Trên xuống'}</span>
                     </button>
+                    {toggleTraffic && (
+                        <button
+                            onClick={toggleTraffic}
+                            className={`inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-medium shadow-sm ${isTrafficVisible ? 'bg-blue-600 text-white' : 'bg-white text-gray-700'}`}
+                            title={isTrafficVisible ? 'Ẩn traffic trên bản đồ' : 'Hiển thị traffic trên bản đồ'}
+                        >
+                            <TrafficCone size={14} />
+                            <span>Traffic</span>
+                        </button>
+                    )}
                 </div>
 
                 <div className="flex items-center gap-1 rounded-lg border border-gray-200 bg-gray-50 px-2 py-1">

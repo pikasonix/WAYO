@@ -46,6 +46,7 @@ export default function RoutingMap() {
     const [is3D, setIs3D] = useState(true);
     const [angled, setAngled] = useState(true);
     const [courseUp] = useState(true);
+    const [isTrafficVisible, setIsTrafficVisible] = useState(false);
     // Routing state
     type Profile = 'driving' | 'walking' | 'cycling' | 'driving-traffic';
     const routeSourceId = 'route-line';
@@ -350,6 +351,54 @@ export default function RoutingMap() {
             mapRef.current.addControl(new mapboxgl.FullscreenControl(), "top-right");
             mapRef.current.addControl(new mapboxgl.ScaleControl({ unit: "metric" }));
 
+            // Add traffic layer when map loads
+            mapRef.current.on('load', () => {
+                // Mapbox has built-in traffic layer
+                if (mapRef.current?.getStyle().sources['mapbox-traffic']) {
+                    // Traffic source already exists
+                    return;
+                }
+
+                // Add traffic source if not exists
+                mapRef.current?.addSource('mapbox-traffic-v1', {
+                    type: 'vector',
+                    url: 'mapbox://mapbox.mapbox-traffic-v1'
+                });
+
+                // Add traffic layers
+                mapRef.current?.addLayer({
+                    id: 'traffic',
+                    type: 'line',
+                    source: 'mapbox-traffic-v1',
+                    'source-layer': 'traffic',
+                    layout: {
+                        'line-cap': 'round',
+                        'line-join': 'round'
+                    },
+                    paint: {
+                        'line-width': [
+                            'interpolate',
+                            ['linear'],
+                            ['zoom'],
+                            10, 1,
+                            16, 8
+                        ],
+                        'line-color': [
+                            'case',
+                            ['==', ['get', 'congestion'], 'severe'], '#b91c1c',
+                            ['==', ['get', 'congestion'], 'heavy'], '#ea580c',
+                            ['==', ['get', 'congestion'], 'moderate'], '#d97706',
+                            ['==', ['get', 'congestion'], 'low'], '#65a30d',
+                            '#16a34a' // free flow
+                        ],
+                        'line-opacity': 0.8
+                    }
+                }, 'road-label');
+
+                // Initially hide traffic
+                mapRef.current?.setLayoutProperty('traffic', 'visibility', 'none');
+            });
+
             mapRef.current.dragRotate.enable();
             mapRef.current.touchZoomRotate.enableRotation();
 
@@ -581,6 +630,16 @@ export default function RoutingMap() {
         const targetZoom = keepZoom ? currentZoom : Math.max(currentZoom, 16.5);
         mapRef.current.easeTo({ center: [lng, lat], zoom: targetZoom, duration: 450 });
     }, [keepZoom]);
+
+    const toggleTraffic = useCallback(() => {
+        if (!mapRef.current) return;
+
+        const currentVisibility = mapRef.current.getLayoutProperty('traffic', 'visibility');
+        const newVisibility = currentVisibility === 'visible' ? 'none' : 'visible';
+
+        mapRef.current.setLayoutProperty('traffic', 'visibility', newVisibility);
+        setIsTrafficVisible(newVisibility === 'visible');
+    }, []);
 
     const createVehicleElement = useCallback((color: string = '#0ea5e9') => {
         const el = document.createElement('div');
@@ -1678,6 +1737,8 @@ export default function RoutingMap() {
                 onRotateRight={() => rotateBy(10)}
                 onResetNorth={resetNorth}
                 onPinMyLocation={handlePinMyLocation}
+                toggleTraffic={toggleTraffic}
+                isTrafficVisible={isTrafficVisible}
             />
             {error ? (
                 <div className="p-4 text-red-600 text-sm">{error}</div>
