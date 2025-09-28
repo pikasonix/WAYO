@@ -105,54 +105,54 @@ const ProjectDetailPage: React.FC = () => {
     email,
   } = project;
 
+  const toArray = (
+    value: string[] | string | null | undefined
+  ): string[] =>
+    Array.isArray(value) ? value : value ? [value] : [];
+
   const founderName = founderProfile.name ?? "Chưa có thông tin";
   const founderAvatarUrl = founderProfile.avatar_url;
 
-  const founderRolesText = founderProfile.role
-    ? getLabels(
-      "profileRole",
-      founderProfile.role as unknown as string[],
-      "Chưa có thông tin"
-    )
+  const founderRolesArray = toArray(founderProfile.role);
+  const founderTypesArray = toArray(founderProfile.type);
+
+  const categoryArray = toArray(categoryValues);
+  const cofounderArray = toArray(cofounderValues);
+  const partnerArray = toArray(project.partners);
+
+  const founderRolesText = founderRolesArray.length
+    ? getLabels("profileRole", founderRolesArray, "Chưa có thông tin")
     : "Chưa có thông tin";
 
-  const founderTypeLabels = founderProfile.type
-    ? getLabels(
-      "profileType",
-      founderProfile.type as unknown as string[],
-      "N/A"
-    )
+  const founderTypeLabels = founderTypesArray.length
+    ? getLabels("profileType", founderTypesArray, "N/A")
     : "N/A";
 
   const founderTypeDisplayString = founderTypeLabels.replace(/, /g, " / ");
 
   const projectCategoryLabels = getLabels(
     "projectCategory",
-    categoryValues,
+    categoryArray,
     "Chưa có thông tin"
   ).split(", ");
 
   const cofounderRoleStrings =
-    cofounderValues
-      ?.map((roleString) => {
-        return getLabels(
-          "cofounder",
-          [roleString] as string[] | undefined,
-          "Chưa có thông tin"
-        );
-      })
-      .join(", ") || "Chưa có thông tin";
+    cofounderArray.length
+      ? cofounderArray
+        .map((roleString) =>
+          getLabels("cofounder", [roleString], "Chưa có thông tin")
+        )
+        .join(", ")
+      : "Chưa có thông tin";
 
   const partnerRoleStrings =
-    project.partners
-      ?.map((roleString) => {
-        return getLabels(
-          "partner",
-          [roleString] as string[] | undefined,
-          "Chưa có thông tin"
-        );
-      })
-      .join(", ") || "Chưa có thông tin";
+    partnerArray.length
+      ? partnerArray
+        .map((roleString) =>
+          getLabels("partner", [roleString], "Chưa có thông tin")
+        )
+        .join(", ")
+      : "Chưa có thông tin";
 
   // const formattedStartDate = startDate
   //   ? new Date(startDate).toLocaleDateString("vi-VN")

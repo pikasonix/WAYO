@@ -5,29 +5,23 @@ import React, { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useGetSessionQuery } from "@/lib/redux/services/auth";
 import {
-  useGetProfileQuery,
-  useGetProjectQuery,
+  useGetProfileOverviewQuery,
   useUpdateProfileMutation,
   useUploadAvatarMutation,
-  useUpdateProjectContactMutation,
-  useUpdateProjectFundingMutation,
-  useUpdateProjectDetailsMutation,
-  useUpdateProjectAboutMutation,
   type DbProfile,
   type DbProject,
 } from "@/lib/redux/services/profileApi";
 import type { FetchBaseQueryError } from "@reduxjs/toolkit/query";
 import ProfileHeader from "@/components/profile/ProfileHeader";
 import ProfileTabs from "@/components/profile/ProfileTabs";
-import EditContactInfoModal from "@/components/profile/EditContactInfoModal";
-import EditFundingInfoModal from "@/components/profile/EditFundingInfoModal";
-import EditProjectInfoModal from "@/components/profile/EditProjectInfoModal";
-import EditAboutInfoModal from "@/components/profile/EditAboutInfoModal";
-import CompleteProfileModal from "@/components/profile/CompleteProfileModal";
-import type { ContactInfo } from "@/components/profile/EditContactInfoModal";
-import type { FundingInfo } from "@/components/profile/EditFundingInfoModal";
-import type { ProjectInfo } from "@/components/profile/EditProjectInfoModal";
-import type { ProfileData } from "@/components/profile/CompleteProfileModal";
+import CompleteProfileModal from "@/components/profile/SimpleProfileSection/CompleteProfileModal";
+import type { ProfileData } from "@/components/profile/SimpleProfileSection/CompleteProfileModal";
+import type {
+  CustomerDetail,
+  SupplierDetail,
+  TechDetail,
+} from "@/components/profile/DetailProfileSection";
+import type { UserRole } from "@/components/profile/types";
 import { toast } from "sonner";
 import { Toaster } from "@/components/ui/sonner";
 import { useOptionLabels } from "@/lib/hooks/useOptionLabels";
@@ -63,41 +57,23 @@ const ProfilePage: React.FC = () => {
   const { getLabels, getLabel } = useOptionLabels();
 
   const [isEditProfileModalOpen, setIsEditProfileModalOpen] = useState(false);
-  const [isEditContactModalOpen, setIsEditContactModalOpen] = useState(false);
-  const [isEditFundingModalOpen, setIsEditFundingModalOpen] = useState(false);
-  const [isEditProjectModalOpen, setIsEditProjectModalOpen] = useState(false);
-  const [isEditAboutModalOpen, setIsEditAboutModalOpen] = useState(false);
+  // Note: project sub-modals were removed to simplify the page and avoid
+  // referencing components/handlers that aren't present in this file.
 
   const {
-    data: profileData,
-    error: profileError,
-    isLoading: isLoadingProfile,
-    isFetching: isFetchingProfile,
-  } = useGetProfileQuery(userId!, {
-    skip: !userId,
-  });
-
-  const {
-    data: projectData,
-    error: projectError,
-    isLoading: isLoadingProject,
-    isFetching: isFetchingProject,
-  } = useGetProjectQuery(userId!, {
+    data: overviewData,
+    error: overviewError,
+    isLoading: isLoadingOverview,
+    isFetching: isFetchingOverview,
+  } = useGetProfileOverviewQuery(userId ?? "", {
     skip: !userId,
   });
 
   const [updateProfile] = useUpdateProfileMutation();
   const [uploadAvatar] = useUploadAvatarMutation();
-  const [updateProjectContact] = useUpdateProjectContactMutation();
-  const [updateProjectFunding] = useUpdateProjectFundingMutation();
-  const [updateProjectDetails] = useUpdateProjectDetailsMutation();
-  const [updateProjectAbout] = useUpdateProjectAboutMutation();
 
-  useEffect(() => {
-    if (!isLoadingSession && !userId) {
-      router.push("/login");
-    }
-  }, [isLoadingSession, userId, router]);
+  const profileData = overviewData?.profile ?? null;
+  const projectData = overviewData?.project ?? null;
 
   // --- Mutation Error Handling Helper ---
   const handleMutationError = useCallback((err: unknown, context: string) => {
@@ -125,12 +101,10 @@ const ProfilePage: React.FC = () => {
 
   const isLoading =
     isLoadingSession ||
-    isLoadingProfile ||
-    isLoadingProject ||
-    isFetchingProfile ||
-    isFetchingProject;
+    isLoadingOverview ||
+    isFetchingOverview;
 
-  const queryError = profileError || projectError;
+  const queryError = overviewError;
 
   const isProfileComplete = React.useMemo(() => {
     if (!profileData) return false;
@@ -142,6 +116,12 @@ const ProfilePage: React.FC = () => {
     const validPhone = phoneDigits.length >= 9;
     return Boolean(name && type && validPhone);
   }, [profileData]);
+
+  useEffect(() => {
+    if (!isLoadingSession && !userId) {
+      router.push("/login");
+    }
+  }, [isLoadingSession, userId, router]);
 
   useEffect(() => {
     if (!isLoading && userId) {
@@ -156,6 +136,100 @@ const ProfilePage: React.FC = () => {
       }
     }
   }, [isLoading, userId, profileData]);
+
+  // Data processing (happens before early returns to maintain hook order)
+  const currentProfile: Partial<DbProfile> = profileData ?? {};
+  const currentProject: Partial<DbProject> = projectData ?? {};
+
+  const profileRoleArray = Array.isArray(currentProfile.role)
+    ? currentProfile.role
+    : currentProfile.role
+      ? [currentProfile.role]
+      : [];
+
+  const projectTagArray = Array.isArray(currentProject.tags)
+    ? currentProject.tags
+    : currentProject.tags
+      ? [currentProject.tags]
+      : [];
+
+  const projectCofounderArray = Array.isArray(currentProject.cofounders)
+    ? currentProject.cofounders
+    : currentProject.cofounders
+      ? [currentProject.cofounders]
+      : [];
+
+  const projectPartnerArray = Array.isArray(currentProject.partners)
+    ? currentProject.partners
+    : currentProject.partners
+      ? [currentProject.partners]
+      : [];
+
+  const roleLabels = getLabels("profileRole", profileRoleArray, "");
+  const currentProfileType =
+    Array.isArray(currentProfile.type) && currentProfile.type.length > 0
+      ? currentProfile.type[0]
+      : typeof currentProfile.type === "string"
+        ? currentProfile.type
+        : undefined;
+  const typeLabel = currentProfileType
+    ? getLabel("profileType", currentProfileType, "")
+    : "";
+
+  const projectCategoryLabels = getLabels(
+    "projectCategory",
+    projectTagArray,
+    ""
+  );
+
+  const userTypeBadges = typeLabel ? [typeLabel] : [];
+  const projectTagsForDisplay = projectCategoryLabels
+    ? projectCategoryLabels.split(", ")
+    : [];
+
+  const resolvedRole: UserRole = React.useMemo(() => {
+    const validRoles: UserRole[] = ["CUSTOMER", "SUPPLIER", "TECH"];
+    const match = profileRoleArray.find((role): role is UserRole =>
+      validRoles.includes(role as UserRole)
+    );
+    return match ?? "CUSTOMER";
+  }, [profileRoleArray]);
+
+  const profileInfoForModal: ProfileData = {
+    name: currentProfile.name ?? "",
+    avatarUrl: currentProfile.avatar_url,
+    type:
+      Array.isArray(currentProfile.type) && currentProfile.type.length > 0
+        ? currentProfile.type[0]
+        : typeof currentProfile.type === "string"
+          ? currentProfile.type
+          : "",
+    role: profileRoleArray,
+    phone: currentProfile.phone ?? "",
+    avatarFile: undefined,
+  };
+
+  const detailInfoForTabs = React.useMemo<{
+    customer?: CustomerDetail;
+    supplier?: SupplierDetail;
+    tech?: TechDetail;
+  }>(() => {
+    const result: {
+      customer?: CustomerDetail;
+      supplier?: SupplierDetail;
+      tech?: TechDetail;
+    } = {};
+
+    if (resolvedRole === "CUSTOMER") {
+      result.customer = {
+        fullName: profileInfoForModal.name || "Khách hàng WAYO",
+        phone: profileInfoForModal.phone || "",
+        password: "********",
+      };
+    }
+
+    return result;
+  }, [profileInfoForModal.name, profileInfoForModal.phone, resolvedRole]);
 
   if (isLoading) {
     return (
@@ -190,18 +264,16 @@ const ProfilePage: React.FC = () => {
   }
 
   const handleEditProfile = () => setIsEditProfileModalOpen(true);
-  // const handleEditProject = () => setIsEditProjectModalOpen(true);
-  // const handleEditContact = () => setIsEditContactModalOpen(true);
-  // const handleEditAbout = () => setIsEditAboutModalOpen(true);
-  // const handleEditFunding = () => setIsEditFundingModalOpen(true);
-
+  // For now, other edit actions prompt the user to complete profile first
+  // and otherwise open the main profile modal. This avoids depending on
+  // additional modal components that are not imported here.
   const handleEditProject = () => {
     if (!isProfileComplete) {
       toast("Vui lòng hoàn thành hồ sơ trước khi chỉnh sửa các thông tin khác.");
       setIsEditProfileModalOpen(true);
       return;
     }
-    setIsEditProjectModalOpen(true);
+    toast("Chỉnh sửa dự án hiện chưa khả dụng trong bản này.");
   };
 
   const handleEditContact = () => {
@@ -210,7 +282,7 @@ const ProfilePage: React.FC = () => {
       setIsEditProfileModalOpen(true);
       return;
     }
-    setIsEditContactModalOpen(true);
+    toast("Chỉnh sửa thông tin liên hệ hiện chưa khả dụng trong bản này.");
   };
 
   const handleEditAbout = () => {
@@ -219,7 +291,7 @@ const ProfilePage: React.FC = () => {
       setIsEditProfileModalOpen(true);
       return;
     }
-    setIsEditAboutModalOpen(true);
+    toast("Chỉnh sửa mô tả dự án hiện chưa khả dụng trong bản này.");
   };
 
   const handleEditFunding = () => {
@@ -228,59 +300,9 @@ const ProfilePage: React.FC = () => {
       setIsEditProfileModalOpen(true);
       return;
     }
-    setIsEditFundingModalOpen(true);
+    toast("Chỉnh sửa thông tin gọi vốn hiện chưa khả dụng trong bản này.");
   };
 
-  const handleSaveContactInfo = async (updatedData: ContactInfo) => {
-    if (!userId) return;
-    try {
-      await updateProjectContact({ userId, contactInfo: updatedData }).unwrap();
-      toast.success("Contact info updated!");
-      setIsEditContactModalOpen(false);
-    } catch (err) {
-      handleMutationError(err, "save contact info");
-    }
-  };
-  const handleSaveFundingInfo = async (updatedData: FundingInfo) => {
-    if (!userId) return;
-
-    // Create a payload with the correct types for the backend
-    // endDate and startDate have been removed from FundingInfo
-    const backendPayload = {
-      ...updatedData,
-    };
-
-    try {
-      await updateProjectFunding({
-        userId,
-        fundingInfo: backendPayload as any,
-      }).unwrap();
-      toast.success("Funding info updated!");
-      setIsEditFundingModalOpen(false);
-    } catch (err) {
-      handleMutationError(err, "save funding info");
-    }
-  };
-  const handleSaveProjectInfo = async (updatedData: ProjectInfo) => {
-    if (!userId) return;
-    try {
-      await updateProjectDetails({ userId, details: updatedData }).unwrap();
-      toast.success("Project details updated!");
-      setIsEditProjectModalOpen(false);
-    } catch (err) {
-      handleMutationError(err, "save project details");
-    }
-  };
-  const handleSaveAboutInfo = async (description: string) => {
-    if (!userId) return;
-    try {
-      await updateProjectAbout({ userId, about: description }).unwrap();
-      toast.success("Project description updated!");
-      setIsEditAboutModalOpen(false);
-    } catch (err) {
-      handleMutationError(err, "save project description");
-    }
-  };
   const handleSaveProfileInfo = async (updatedData: ProfileData) => {
     if (!userId) return;
     const { avatarFile, ...profileDetails } = updatedData;
@@ -330,73 +352,10 @@ const ProfilePage: React.FC = () => {
     }
   };
 
-  const currentProfile: Partial<DbProfile> = profileData ?? {};
-  const currentProject: Partial<DbProject> = projectData ?? {};
-
-  // Shape data specifically for modals, ensuring defaults for required fields
-  const contactInfoForModal: ContactInfo = {
-    location: currentProject.location ?? null, // Ensure null if undefined
-    website: currentProject.website ?? null,
-    portfolio: currentProject.portfolio ?? null,
-    email: currentProject.email ?? null,
-  };
-
-  // This object has endDate as Date | null - Correct for the modal
-  const fundingInfoForModal: FundingInfo = {
-    investment: currentProject.investment ?? null,
-    currency: currentProject.currency ?? "USD",
-    cofounders: currentProject.cofounders ?? [],
-    partners: currentProject.partners ?? [],
-  };
-
-  const projectInfoForModal: ProjectInfo = {
-    title: currentProject.title ?? "",
-    tags: currentProject.tags ?? [], // Keep raw values for the modal's MultiSelectDropdown
-    description: currentProject.description ?? "",
-  };
-
-  const profileInfoForModal: ProfileData = {
-    name: currentProfile.name ?? "",
-    avatarUrl: currentProfile.avatar_url, // Can be null
-    type:
-      Array.isArray(currentProfile.type) && currentProfile.type.length > 0
-        ? currentProfile.type[0]
-        : typeof currentProfile.type === "string"
-          ? currentProfile.type
-          : "",
-    role: currentProfile.role ?? [],
-    phone: currentProfile.phone ?? "",
-    avatarFile: undefined, // Not part of fetched data
-  };
-
-  const roleLabels = getLabels("profileRole", currentProfile.role, "");
-  const currentProfileType =
-    Array.isArray(currentProfile.type) && currentProfile.type.length > 0
-      ? currentProfile.type[0]
-      : typeof currentProfile.type === "string"
-        ? currentProfile.type
-        : undefined;
-  const typeLabel = currentProfileType
-    ? getLabel("profileType", currentProfileType, "")
-    : "";
-
-  const projectCategoryLabels = getLabels(
-    "projectCategory",
-    currentProject.tags,
-    ""
-  ); // Added
-
-  const userTypeBadges = typeLabel ? [typeLabel] : [];
-
-  // Pass processed labels for display to ProfileTabs, but raw tags to EditProjectInfoModal
-  const projectTagsForDisplay = projectCategoryLabels
-    ? projectCategoryLabels.split(", ")
-    : [];
-
   return (
     <div className="flex flex-col min-h-screen pt-16">
       <Toaster />
-      {(isFetchingProfile || isFetchingProject) && (
+      {isFetchingOverview && (
         <div className="fixed top-4 right-4 z-50 bg-blue-100 text-blue-700 px-3 py-1 rounded text-sm">
           Updating...
         </div>
@@ -414,44 +373,32 @@ const ProfilePage: React.FC = () => {
         />
 
         <ProfileTabs
+          role={resolvedRole}
           project={{
             title: currentProject.title ?? "Untitled Project",
             tags: projectTagsForDisplay, // Changed to use labels for display
             description:
               currentProject.description ?? "No description available.",
-            contactInfo: contactInfoForModal,
-            fundingInfo: fundingInfoForModal,
+            contactInfo: {
+              location: currentProject.location ?? null,
+              website: currentProject.website ?? null,
+              portfolio: currentProject.portfolio ?? null,
+              email: currentProject.email ?? null,
+            },
+            fundingInfo: {
+              investment: currentProject.investment ?? null,
+              currency: currentProject.currency ?? null,
+              cofounders: projectCofounderArray,
+              partners: projectPartnerArray,
+            },
           }}
+          detailInfo={detailInfoForTabs}
           onEditProject={handleEditProject}
           onEditContact={handleEditContact}
           onEditAbout={handleEditAbout}
           onEditFunding={handleEditFunding}
         />
       </main>
-      <EditContactInfoModal
-        isOpen={isEditContactModalOpen}
-        onClose={() => setIsEditContactModalOpen(false)}
-        initialData={contactInfoForModal}
-        onSave={handleSaveContactInfo}
-      />
-      <EditFundingInfoModal
-        isOpen={isEditFundingModalOpen}
-        onClose={() => setIsEditFundingModalOpen(false)}
-        initialData={fundingInfoForModal}
-        onSave={handleSaveFundingInfo}
-      />
-      <EditProjectInfoModal
-        isOpen={isEditProjectModalOpen}
-        onClose={() => setIsEditProjectModalOpen(false)}
-        initialData={projectInfoForModal}
-        onSave={handleSaveProjectInfo}
-      />
-      <EditAboutInfoModal
-        isOpen={isEditAboutModalOpen}
-        onClose={() => setIsEditAboutModalOpen(false)}
-        initialData={projectInfoForModal}
-        onSave={handleSaveProjectInfo}
-      />
       <CompleteProfileModal
         isOpen={isEditProfileModalOpen}
         onClose={() => setIsEditProfileModalOpen(false)}

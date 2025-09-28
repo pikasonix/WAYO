@@ -12,6 +12,13 @@ const nextConfig: NextConfig = {
         port: "",
         pathname: "/storage/v1/object/public/avatars/**",
       },
+      // Allow gstatic (Google-hosted) images used by some favicons/brand assets
+      {
+        protocol: "https",
+        hostname: "www.gstatic.com",
+        port: "",
+        pathname: "/**",
+      },
       // Add other allowed hostnames here if needed
     ],
   },

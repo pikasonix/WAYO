@@ -31,7 +31,7 @@ export type MultiSelectDropdownProps = {
 
 const MultiSelectDropdown: React.FC<MultiSelectDropdownProps> = ({
   options,
-  value, // This is an array of selected keys, e.g. ["startup_company", "angel_investor"]
+  value, // This is an array of selected keys, e.g. ["CUSTOMER_company", "angel_STATION_OWNER"]
   onChange,
   label,
   placeholder = "Select options...",

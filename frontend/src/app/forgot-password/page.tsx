@@ -42,11 +42,11 @@ export default function ForgotPasswordPage() {
   const hasError = error != null;
 
   return (
-    <div className="min-h-screen flex flex-col justify-center items-center px-4 pb-12 pt-16">
+    <div className="auth-bg min-h-screen flex flex-col justify-center items-center px-4 pb-12 pt-16">
       <div className="w-full max-w-md">
         {/* Logo and header */}
         <div className="text-center mb-8">
-          <Link href="/" className="inline-flex items-center gap-3 mb-6">
+          <Link href="/" className="inline-flex items-center text-shadow-lg gap-3 mb-6">
             <Image
               src={process.env.NEXT_PUBLIC_LOGO_WAYO || "/favicon.png"}
               alt="WAYO Logo"
@@ -64,7 +64,7 @@ export default function ForgotPasswordPage() {
         </div>
 
         {/* Reset password form */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 auth-form">
           {resetSent ? (
             <div className="p-4 bg-green-50 text-green-700 rounded-lg border border-green-100 text-sm mb-4">
               <h3 className="font-medium mb-1">Reset link sent!</h3>

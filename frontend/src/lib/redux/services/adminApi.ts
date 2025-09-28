@@ -1,6 +1,6 @@
 import { createApi, fetchBaseQuery } from "@reduxjs/toolkit/query/react";
 import { PostgrestError } from "@supabase/supabase-js";
-import { supabase } from "../../../../supabase/client";
+import { supabase } from "@/supabase/client";
 import type { FetchBaseQueryError } from "@reduxjs/toolkit/query";
 
 /**

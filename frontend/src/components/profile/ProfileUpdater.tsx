@@ -6,7 +6,7 @@ import {
   useUpdateProfileMutation,
   useUploadAvatarMutation,
 } from "@/lib/redux/services/profileApi";
-import { supabase } from "../../../supabase/client";
+import { supabase } from "@/supabase/client";
 
 /**
  * A client component that handles updating the user's profile with a phone number

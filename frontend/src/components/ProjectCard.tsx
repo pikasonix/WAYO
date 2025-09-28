@@ -38,9 +38,14 @@ export default function ProjectCard({
 }: {
   project: ProjectWithFounder;
 }) {
+  const toArray = (
+    value: string[] | string | null | undefined
+  ): string[] =>
+    Array.isArray(value) ? value : value ? [value] : [];
+
   const title = project.title ?? "Untitled Project";
   const description = project.description ?? "No description available.";
-  const tags = project.tags ?? [];
+  const tagsArray = toArray(project.tags);
   // const date = project.start_date ?? new Date().toLocaleDateString();
   const date = project.created_at
     ? new Date(project.created_at).toLocaleDateString("vi-VN")
@@ -48,12 +53,14 @@ export default function ProjectCard({
   const location = project.location ?? "Unknown Location";
   const investment = project.investment ?? "N/A";
   const currency = project.currency ?? "USD";
-  const coFounders = project.cofounders ?? [];
-  const partners = project.partners ?? [];
-  const projectType = project.profiles?.type?.[0] ?? "startup";
+  const coFounders = toArray(project.cofounders);
+  const partners = toArray(project.partners);
+  const projectTypeArray = toArray(project.profiles?.type);
+  const projectType = projectTypeArray[0] ?? "CUSTOMER";
 
   const founderName = project.profiles?.name ?? "Unknown Founder";
-  const founderRole = project.profiles?.role?.[0] ?? "Founder";
+  const founderRolesArray = toArray(project.profiles?.role);
+  const founderRole = founderRolesArray[0] ?? "Founder";
   const founderAvatar = project.profiles?.avatar_url;
 
   // Extract and truncate text content from HTML description
@@ -62,7 +69,7 @@ export default function ProjectCard({
 
   const { getLabels, getLabel } = useOptionLabels();
 
-  const tagLabels = getLabels("projectCategory", tags, "N/A");
+  const tagLabels = getLabels("projectCategory", tagsArray, "N/A");
   const coFounderRoleLabelsString = getLabels("cofounder", coFounders, "N/A");
   const partnerRoleLabelsString = getLabels("partner", partners, "N/A");
   const founderRoleLabel = getLabel("profileRole", founderRole, founderRole);
@@ -100,7 +107,7 @@ export default function ProjectCard({
           </div>
         </div>
         <span
-          className={`${projectType === "startup"
+          className={`${projectType === "CUSTOMER"
             ? "text-xs sm:text-sm bg-blue-50 text-blue-800 border-blue-200"
             : "text-xs sm:text-sm bg-green-50 text-green-800 border-green-200"
             } px-4 py-2 rounded-full text-sm border font-medium`}

@@ -44,7 +44,7 @@ export const COFOUNDER_TYPE_OPTIONS = [
     label: "Sáng lập Bán thời gian",
   },
   {
-    value: "investor_cofounder",
+    value: "STATION_OWNER_cofounder",
     label: "Sáng lập Nhà đầu tư",
   },
   { value: "other", label: "Khác" },
@@ -173,12 +173,9 @@ export const PROJECT_FUNDING_STAGE_OPTIONS = [
 ];
 
 export const PROFILE_TYPE_OPTIONS = [
-  { value: "startup", label: "Cá nhân/Dự án" },
-  { value: "investor", label: "Nhà đầu tư/Quỹ đầu tư" },
-  {
-    value: "partner",
-    label: "Đối tác/Công ty",
-  },
+  { value: "CUSTOMER", label: "Người dùng cá nhân" },
+  { value: "STATION_OWNER", label: "Quản lý trạm sạc" },
+  { value: "TECHNICIAN", label: "Kỹ thuật viên" },
 ];
 
 export const PROFILE_ROLE_OPTIONS = [
@@ -193,7 +190,7 @@ export const PROFILE_ROLE_OPTIONS = [
     value: "investment_analyst_profile",
     label: "Phân tích đầu tư",
   },
-  { value: "investor_profile", label: "Nhà đầu tư" },
+  { value: "STATION_OWNER_profile", label: "Nhà đầu tư" },
   { value: "partner_profile", label: "Đối tác đầu tư" },
   { value: "mentor_profile", label: "Cố vấn" },
   { value: "legal_advisor", label: "Tư vấn pháp lý" },

@@ -1,7 +1,7 @@
 // Import backend client for replacing Supabase calls with backend API
 import { db, auth, storage } from '../../../services/backendClient';
 
-function startup() {
+function CUSTOMER() {
     deactivate_load_solution_button();
     reset_nodes_list()
     reset_routes_list()

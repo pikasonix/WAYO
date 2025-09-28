@@ -77,7 +77,7 @@ export default function SignupPage() {
   const hasError = error != null;
 
   return (
-    <div className="min-h-screen flex flex-col justify-center items-center px-4 pb-12">
+    <div className="auth-bg min-h-screen flex flex-col justify-center items-center px-4 pb-12">
       <div className="w-full max-w-md pt-24">
         {/* Logo and header */}
         <div className="text-center mb-8">
@@ -98,7 +98,7 @@ export default function SignupPage() {
         </div>
 
         {/* Signup form */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 auth-form">
           <form className="space-y-4" onSubmit={handleSubmit}>
             {hasError && (
               <div className="p-3 bg-red-50 text-red-700 rounded-lg border border-red-100 text-sm">

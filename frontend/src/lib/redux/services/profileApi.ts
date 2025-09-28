@@ -1,11 +1,8 @@
 import { createApi, fetchBaseQuery } from "@reduxjs/toolkit/query/react";
 import { PostgrestError } from "@supabase/supabase-js";
 import type { StorageError } from "@supabase/storage-js";
-import { supabase } from "../../../../supabase/client"; // Corrected path
+import { supabase } from "@/supabase/client";
 import type { FetchBaseQueryError } from "@reduxjs/toolkit/query"; // Import FetchBaseQueryError
-import { ContactInfo } from "@/components/profile/EditContactInfoModal";
-// import { FundingInfo } from "@/components/profile/EditFundingInfoModal"; // Removed unused import
-import { ProjectInfo } from "@/components/profile/EditProjectInfoModal";
 
 // Define Profile type based on DB schema (adjust nullability as needed)
 export interface DbProfile {
@@ -13,8 +10,8 @@ export interface DbProfile {
   name: string | null;
   avatar_url: string | null;
   intro: string | null;
-  type: string[] | null;
-  role: string[] | null;
+  type: string[] | string | null;
+  role: string[] | string | null;
   phone?: string | null;
   updated_at?: string;
 }
@@ -24,7 +21,7 @@ export interface DbProject {
   id: string;
   user_id: string;
   title: string | null;
-  tags: string[] | null;
+  tags: string[] | string | null;
   description: string | null;
   location: string | null;
   website: string | null;
@@ -32,8 +29,8 @@ export interface DbProject {
   email: string | null;
   investment: string | null;
   currency: string | null;
-  cofounders: string[] | null;
-  partners: string[] | null;
+  cofounders: string[] | string | null;
+  partners: string[] | string | null;
   start_date: string | null; // Date as string for simplicity
   end_date: string | null; // Date as string
   created_at?: string;
@@ -41,13 +38,26 @@ export interface DbProject {
 }
 
 // Define a type for the funding info payload expected by the backend
-interface FundingInfoPayload {
+export interface FundingInfoPayload {
   investment: string | null;
   currency: string | null;
   cofounders: string[];
   partners: string[];
-  startDate: string | null;
-  endDate: string | null; // Expect string for backend
+  startDate?: string | null;
+  endDate?: string | null; // Optional to align with new profile flows
+}
+
+export interface ProjectBasicsPayload {
+  title: string | null;
+  tags: string[];
+  description?: string | null;
+}
+
+export interface ProjectContactInfoPayload {
+  location: string | null;
+  website: string | null;
+  portfolio: string | null;
+  email: string | null;
 }
 
 // Define a new type for the combined Project and Profile data
@@ -59,6 +69,59 @@ export interface ProjectWithFounder extends DbProject {
     type: string[] | null;
   } | null; // Profile might not exist, handle null
 }
+
+export interface ProfileOverview {
+  profile: DbProfile | null;
+  project: ProjectWithFounder | null;
+}
+
+const ensureStringArray = (
+  value: string[] | string | null | undefined
+): string[] => {
+  if (Array.isArray(value)) {
+    return value.filter((item): item is string => typeof item === "string");
+  }
+  if (typeof value === "string" && value.trim().length > 0) {
+    return [value];
+  }
+  return [];
+};
+
+const arrayOrNull = (value: string[]): string[] | null =>
+  value.length > 0 ? value : null;
+
+const normalizeProfile = (profile: DbProfile | null): DbProfile | null => {
+  if (!profile) return null;
+  const typeArray = ensureStringArray(profile.type);
+  const roleArray = ensureStringArray(profile.role);
+  return {
+    ...profile,
+    type: profile.type === null ? null : arrayOrNull(typeArray),
+    role: profile.role === null ? null : arrayOrNull(roleArray),
+  };
+};
+
+const normalizeProject = <T extends DbProject | null>(project: T): T => {
+  if (!project) return project;
+  const normalized = {
+    ...project,
+    tags: arrayOrNull(ensureStringArray(project.tags)),
+    cofounders: arrayOrNull(ensureStringArray(project.cofounders)),
+    partners: arrayOrNull(ensureStringArray(project.partners)),
+  } as DbProject;
+  return normalized as T;
+};
+
+const normalizeProjectWithFounder = (
+  project: (ProjectWithFounder | null) | (DbProject & { profiles?: any }) | null
+): ProjectWithFounder | null => {
+  if (!project) return null;
+  const { profiles, ...rest } = project as ProjectWithFounder;
+  return {
+    ...(normalizeProject(rest as DbProject) as DbProject),
+    profiles: profiles ?? null,
+  };
+};
 
 // --- Helper function to format Supabase errors for RTK Query ---
 /**
@@ -122,7 +185,7 @@ export const profileApi = createApi({
           .eq("id", userId)
           .maybeSingle(); // Returns single object or null
         if (error) return { error: formatSupabaseError(error) };
-        return { data };
+        return { data: normalizeProfile(data as DbProfile | null) };
       },
       providesTags: (result) =>
         result ? [{ type: "Profile", id: result.id }] : [],
@@ -134,23 +197,31 @@ export const profileApi = createApi({
     >({
       queryFn: async (profileUpdate) => {
         const { id, ...updateData } = profileUpdate;
-        // Ensure updated_at is set for both insert and update
-        const payload = {
+
+        const payload: Partial<DbProfile> & { id: string; updated_at: string } = {
           ...updateData,
-          id: id, // Include id for upsert
+          id,
           updated_at: new Date().toISOString(),
         };
 
+        if (updateData.type !== undefined) {
+          const normalizedType = ensureStringArray(updateData.type);
+          payload.type = normalizedType.length ? normalizedType : null;
+        }
+
+        if (updateData.role !== undefined) {
+          const normalizedRole = ensureStringArray(updateData.role);
+          payload.role = normalizedRole.length ? normalizedRole : null;
+        }
+
         const { data, error } = await supabase
           .from("profiles")
-          // Use upsert instead of update
           .upsert(payload)
-          // Still select the result (either inserted or updated row)
           .select()
-          .single(); // Expecting one row after upsert
+          .single();
 
         if (error) return { error: formatSupabaseError(error) };
-        return { data };
+        return { data: normalizeProfile(data as DbProfile) as DbProfile };
       },
       invalidatesTags: (result, error, profileUpdate) =>
         profileUpdate ? [{ type: "Profile", id: profileUpdate.id }] : [],
@@ -196,9 +267,11 @@ export const profileApi = createApi({
           `);
 
         if (error) return { error: formatSupabaseError(error) };
-        // Ensure data is not null, return empty array if it is
-        // Also assert the type to match the new interface
-        return { data: (data as ProjectWithFounder[]) ?? [] };
+        const projects = Array.isArray(data) ? (data as ProjectWithFounder[]) : [];
+        const normalized = projects
+          .map((project) => normalizeProjectWithFounder(project))
+          .filter((project): project is ProjectWithFounder => Boolean(project));
+        return { data: normalized };
       },
       // Provide a general tag for the list of projects
       providesTags: (result) =>
@@ -221,7 +294,7 @@ export const profileApi = createApi({
           .maybeSingle(); // Assume one project per user for now
 
         if (error) return { error: formatSupabaseError(error) };
-        return { data };
+        return { data: normalizeProject(data as DbProject | null) };
       },
       providesTags: (result, error, userId) =>
         userId ? [{ type: "Project", id: userId }] : [],
@@ -247,38 +320,135 @@ export const profileApi = createApi({
           .eq("id", projectId)
           .maybeSingle(); // Returns single object or null
         if (error) return { error: formatSupabaseError(error) };
-        return { data: data as ProjectWithFounder | null };
+        return {
+          data: normalizeProjectWithFounder(data as ProjectWithFounder | null),
+        };
       },
       providesTags: (result, error, projectId) =>
         result ? [{ type: "Project", id: projectId }] : [],
     }),
 
-    // Mutation to update different parts of the project
-    // Using partial updates based on what the modal provides
+    getProfileOverview: builder.query<ProfileOverview, string>({
+      queryFn: async (userId) => {
+        if (!userId) {
+          return { data: { profile: null, project: null } };
+        }
+        const [profileResult, projectResult] = await Promise.all([
+          supabase
+            .from("profiles")
+            .select("*")
+            .eq("id", userId)
+            .maybeSingle(),
+          supabase
+            .from("projects")
+            .select(
+              `
+              *,
+              profiles (
+                name,
+                role,
+                avatar_url,
+                type,
+                intro
+              )
+            `
+            )
+            .eq("user_id", userId)
+            .maybeSingle(),
+        ]);
+
+        const profileError = profileResult.error;
+        if (profileError) return { error: formatSupabaseError(profileError) };
+
+        const projectError = projectResult.error;
+        if (projectError) return { error: formatSupabaseError(projectError) };
+
+        return {
+          data: {
+            profile: normalizeProfile(profileResult.data as DbProfile | null),
+            project: normalizeProjectWithFounder(
+              projectResult.data as ProjectWithFounder | null
+            ),
+          },
+        };
+      },
+      providesTags: (result, error, userId) =>
+        userId
+          ? [
+            { type: "Profile", id: userId },
+            { type: "Project", id: userId },
+          ]
+          : [],
+    }),
+
+    updateProjectBasics: builder.mutation<
+      DbProject,
+      { userId: string; basics: ProjectBasicsPayload }
+    >({
+      queryFn: async ({ userId, basics }) => {
+        const payload: Partial<DbProject> & { user_id: string; updated_at: string } = {
+          user_id: userId,
+          title: basics.title,
+          tags: basics.tags ?? [],
+          updated_at: new Date().toISOString(),
+        };
+
+        if (basics.description !== undefined) {
+          payload.description = basics.description;
+        }
+
+        const { data, error } = await supabase
+          .from("projects")
+          .upsert(payload, { onConflict: "user_id" })
+          .select()
+          .single();
+
+        if (error) return { error: formatSupabaseError(error) };
+        return {
+          data: normalizeProject(data as DbProject) as DbProject,
+        };
+      },
+      invalidatesTags: (result, error, { userId }) =>
+        userId
+          ? [
+            { type: "Project", id: userId },
+            { type: "Project", id: "LIST" },
+          ]
+          : [],
+    }),
+
     updateProjectContact: builder.mutation<
       DbProject,
-      { userId: string; contactInfo: ContactInfo }
+      { userId: string; contact: ProjectContactInfoPayload }
     >({
-      queryFn: async ({ userId, contactInfo }) => {
-        // Prepare payload for upsert
-        const payload = {
+      queryFn: async ({ userId, contact }) => {
+        const payload: Partial<DbProject> & { user_id: string; updated_at: string } = {
           user_id: userId,
-          ...contactInfo,
+          location: contact.location,
+          website: contact.website,
+          portfolio: contact.portfolio,
+          email: contact.email,
           updated_at: new Date().toISOString(),
         };
 
         const { data, error } = await supabase
           .from("projects")
-          // Specify user_id as the conflict target for upsert
           .upsert(payload, { onConflict: "user_id" })
           .select()
           .single();
+
         if (error) return { error: formatSupabaseError(error) };
-        return { data };
+        return {
+          data: normalizeProject(data as DbProject) as DbProject,
+        };
       },
-      // Invalidate based on userId argument
       invalidatesTags: (result, error, { userId }) =>
-        userId ? [{ type: "Project", id: userId }] : [],
+        userId
+          ? [
+            { type: "Project", id: userId },
+            { type: "Project", id: "LIST" },
+          ]
+          : [],
     }),
 
     updateProjectFunding: builder.mutation<
@@ -286,10 +456,9 @@ export const profileApi = createApi({
       { userId: string; fundingInfo: FundingInfoPayload }
     >({
       queryFn: async ({ userId, fundingInfo }) => {
-        // fundingInfo now correctly expects endDate as string | null
         const {
           startDate,
-          endDate, // Now correctly typed as string | null
+          endDate,
           investment,
           currency,
           cofounders,
@@ -299,14 +468,20 @@ export const profileApi = createApi({
         // Construct the payload only with fields that exist in DbProject
         const payload: Partial<DbProject> & { user_id: string } = {
           user_id: userId,
-          investment: investment,
-          currency: currency,
-          cofounders: cofounders,
-          partners: partners,
-          start_date: startDate,
-          end_date: endDate, // Pass the string directly
+          investment,
+          currency,
+          cofounders: cofounders ?? [],
+          partners: partners ?? [],
           updated_at: new Date().toISOString(),
         };
+
+        if (startDate !== undefined) {
+          payload.start_date = startDate ?? null;
+        }
+
+        if (endDate !== undefined) {
+          payload.end_date = endDate ?? null;
+        }
 
         const { data, error } = await supabase
           .from("projects")
@@ -314,35 +489,17 @@ export const profileApi = createApi({
           .select()
           .single();
         if (error) return { error: formatSupabaseError(error) };
-        return { data };
-      },
-      invalidatesTags: (result, error, { userId }) =>
-        userId ? [{ type: "Project", id: userId }] : [],
-    }),
-
-    updateProjectDetails: builder.mutation<
-      DbProject,
-      { userId: string; details: ProjectInfo }
-    >({
-      queryFn: async ({ userId, details }) => {
-        // Prepare payload for upsert
-        const payload = {
-          user_id: userId,
-          ...details,
-          updated_at: new Date().toISOString(),
+        return {
+          data: normalizeProject(data as DbProject) as DbProject,
         };
-        const { data, error } = await supabase
-          .from("projects")
-          // Specify user_id as the conflict target for upsert
-          .upsert(payload, { onConflict: "user_id" })
-          .select()
-          .single();
-        if (error) return { error: formatSupabaseError(error) };
-        return { data };
       },
-      // Invalidate based on userId argument
       invalidatesTags: (result, error, { userId }) =>
-        userId ? [{ type: "Project", id: userId }] : [],
+        userId
+          ? [
+            { type: "Project", id: userId },
+            { type: "Project", id: "LIST" },
+          ]
+          : [],
     }),
 
     updateProjectAbout: builder.mutation<
@@ -365,10 +522,17 @@ export const profileApi = createApi({
           .single();
 
         if (error) return { error: formatSupabaseError(error) };
-        return { data };
+        return {
+          data: normalizeProject(data as DbProject) as DbProject,
+        };
       },
       invalidatesTags: (result, error, { userId }) =>
-        userId ? [{ type: "Project", id: userId }] : [],
+        userId
+          ? [
+            { type: "Project", id: userId },
+            { type: "Project", id: "LIST" },
+          ]
+          : [],
     }),
   }),
 });
@@ -378,11 +542,12 @@ export const {
   useGetProfileQuery,
   useUpdateProfileMutation,
   useUploadAvatarMutation,
+  useGetProfileOverviewQuery,
   useGetAllProjectsQuery,
   useGetProjectQuery,
   useGetProjectByIdQuery,
+  useUpdateProjectBasicsMutation,
   useUpdateProjectContactMutation,
   useUpdateProjectFundingMutation,
-  useUpdateProjectDetailsMutation,
   useUpdateProjectAboutMutation,
 } = profileApi;

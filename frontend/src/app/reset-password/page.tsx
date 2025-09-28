@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { supabase } from "../../../supabase/client";
+import { supabase } from "@/supabase/client";
 import Link from "next/link";
 
 /**
@@ -79,7 +79,7 @@ export default function ResetPasswordPage() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col justify-center items-center px-4 pb-12 pt-16">
+    <div className="auth-bg min-h-screen flex flex-col justify-center items-center px-4 pb-12 pt-16">
       <div className="w-full max-w-md">
         {/* Logo and header */}
         <div className="text-center mb-8">
@@ -100,7 +100,7 @@ export default function ResetPasswordPage() {
         </div>
 
         {/* Reset password form */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 auth-form">
           {success ? (
             <div className="p-4 bg-green-50 text-green-700 rounded-lg border border-green-100 text-sm">
               <h3 className="font-medium mb-1">Password updated!</h3>

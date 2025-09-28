@@ -96,15 +96,6 @@ const GuidePage: React.FC<GuidePageProps> = ({ onBack }) => {
                                     Sử dụng OSRM để tính toán đường đi thực tế trên đường phố
                                 </p>
                             </div>
-                            <div className="p-4 bg-orange-50 rounded-lg">
-                                <h3 className="font-medium text-orange-800 mb-2">
-                                    <i className="fas fa-traffic-light mr-2"></i>
-                                    Traffic monitoring
-                                </h3>
-                                <p className="text-orange-700 text-sm">
-                                    Giám sát giao thông thời gian thực với Google Maps/Track Asia
-                                </p>
-                            </div>
                             <div className="p-4 bg-red-50 rounded-lg">
                                 <h3 className="font-medium text-red-800 mb-2">
                                     <i className="fas fa-download mr-2"></i>

@@ -262,39 +262,6 @@ const CompleteProfileModal: React.FC<CompleteProfileModalProps> = ({
               </FormItem>
             )}
           />
-
-          <FormField
-            control={form.control}
-            name="role"
-            rules={{
-              validate: (value) =>
-                value.length <= 2 || "Bạn chỉ có thể chọn tối đa 2 vai trò.",
-            }}
-            render={({
-              field,
-            }: {
-              field: ControllerRenderProps<ProfileData, "role">;
-            }) => (
-              <FormItem>
-                <FormLabel>Vai trò</FormLabel>
-                <FormControl>
-                  <MultiSelectDropdown
-                    options={PROFILE_ROLE_OPTIONS}
-                    value={field.value ?? []}
-                    onChange={(newValues) =>
-                      form.setValue("role", newValues, { shouldDirty: true })
-                    }
-                    placeholder="Chọn vai trò..."
-                    label="Vai trò"
-                  />
-                </FormControl>
-                <div className="text-xs text-muted-foreground mt-1">
-                  {`Chức vụ đã chọn ${((field.value as string[]) ?? []).length}/2`}
-                </div>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
         </form>
       </Form>
     </ScrollableModal>

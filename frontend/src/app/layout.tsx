@@ -45,7 +45,6 @@ export default function RootLayout({
   const navLinks = [
     { href: "/map", label: "Dashboard" },
     { href: "/add-instance", label: "Tạo Instance" },
-    { href: "/map?view=trafficMonitoring", label: "Giám sát giao thông" },
     { href: "/map?view=trackAsiaTraffic", label: "Track Asia Traffic" },
     { href: "/map?view=guide", label: "Hướng dẫn" },
   ];

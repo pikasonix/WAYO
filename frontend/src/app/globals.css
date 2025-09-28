@@ -279,3 +279,62 @@
 .scrollbar-hidden::-webkit-scrollbar {
   display: none;
 }
+
+/* Auth pages background using public/background.svg */
+.auth-bg {
+  position: relative;
+}
+
+.auth-bg::before {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-image: url('/background.svg');
+  background-repeat: no-repeat;
+  background-position: center center;
+  background-size: 200% auto;
+  /* 2x zoom */
+  background-attachment: fixed;
+  filter: blur(3px);
+  /* subtle blur effect */
+  z-index: -1;
+}
+
+/* Responsive tweaks: on small screens adjust sizing for better fit */
+@media (max-width: 640px) {
+  .auth-bg::before {
+    background-attachment: scroll;
+    background-size: 250% auto;
+    /* slightly larger zoom on mobile */
+    filter: blur(2px);
+    /* less blur on mobile for better visibility */
+  }
+}
+
+/* Auth form transparency and text backgrounds */
+.auth-form {
+  background: rgba(255, 255, 255, 0.85) !important;
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.2) !important;
+}
+
+.auth-header-text {
+  background: rgba(255, 255, 255, 0.9);
+  padding: 8px 16px;
+  border-radius: 12px;
+  backdrop-filter: blur(5px);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  display: inline-block;
+}
+
+.auth-header-title {
+  background: rgba(255, 255, 255, 0.95);
+  padding: 12px 20px;
+  border-radius: 16px;
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  margin: 8px 0;
+}

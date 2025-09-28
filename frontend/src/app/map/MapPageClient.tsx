@@ -14,7 +14,6 @@ const MapComponent = dynamic(() => import('@/components/map/MapComponent'), { ss
 const Sidebar = dynamic(() => import('@/components/map/Sidebar'), { ssr: false });
 const GuidePage = dynamic(() => import('@/components/map/GuidePage'), { ssr: false });
 const AddInstancePage = dynamic(() => import('@/components/add-instance/AddInstanceBuilder'), { ssr: false });
-const TrafficMonitoringPage = dynamic(() => import('@/components/map/TrafficMonitoringPage'), { ssr: false });
 const TrackAsiaTrafficPage = dynamic(() => import('@/components/map/TrackAsiaTrafficPage'), { ssr: false });
 
 type ViewKey = 'map' | 'guide' | 'addInstance' | 'trafficMonitoring' | 'trackAsiaTraffic';
@@ -294,8 +293,6 @@ function MapPageClient() {
                         }}
                     />
                 );
-            case 'trafficMonitoring':
-                return <TrafficMonitoringPage onBack={showMap} />;
             case 'trackAsiaTraffic':
                 return <TrackAsiaTrafficPage onBack={showMap} />;
             case 'map':

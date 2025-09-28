@@ -2,7 +2,7 @@
  * Authentication API service
  */
 import { createApi, fakeBaseQuery } from "@reduxjs/toolkit/query/react";
-import { supabase } from "../../../../supabase/client";
+import { supabase } from "@/supabase/client";
 import { Session, User } from "@supabase/supabase-js";
 
 /**
