@@ -4,7 +4,7 @@ import { DndContext, closestCenter, DragEndEvent, DragOverEvent } from '@dnd-kit
 import { SortableContext, useSortable, verticalListSortingStrategy, arrayMove } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { GripVertical, MapPin, Plus, ArrowUpDown, X, ScanSearch, Navigation, Route, List, Clock, GaugeCircle, TrafficCone, PanelLeftOpen, PanelRightOpen } from 'lucide-react';
-import { formatDuration, formatDistance, formatInstructionVI } from './formatters';
+import { formatDistance, formatInstructionVI } from './formatters';
 import config from '@/config/config';
 import { getGeocoder, type Suggestion } from '@/services/geocoding';
 import AdvancedRoutingPanel, { type AdvancedOptions } from './AdvancedRoutingPanel';
@@ -52,6 +52,15 @@ const CONGESTION_ORDER: Record<string, number> = {
     low: 4,
     free: 5,
     unknown: 6
+};
+
+const formatEta = (sec: number): string => {
+    if (!Number.isFinite(sec) || sec <= 0) return '0:00:00';
+    const totalSeconds = Math.round(sec);
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+    return `${hours}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
 };
 
 type ControlsPanelProps = {
@@ -1051,7 +1060,7 @@ export const ControlsPanel: React.FC<ControlsPanelProps> = ({
                 </div>
             ) : (
                 <div className="flex items-start gap-2">
-                    <div className="bg-white/95 backdrop-blur rounded-lg shadow border border-gray-200 p-4 w-[380px] max-w-[90vw]">
+                    <div className="bg-white/95 backdrop-blur rounded-lg shadow border border-gray-200 p-4 w-[400px] max-h-[calc(100vh-10rem)] overflow-y-auto overflow-x-hidden scrollbar-rounded">
                         {/* Start/End/Waypoints section */}
                         <div className="mb-6">
                             <div className="flex items-center justify-between mb-3">
@@ -1240,6 +1249,11 @@ export const ControlsPanel: React.FC<ControlsPanelProps> = ({
                                             const currentDuration = isActive ? durationMinutes : alt.durationMin;
                                             const currentDistance = isActive ? distanceMeters : (alt.distanceKm * 1000);
                                             const currentSpeed = isActive ? (speedDisplay && speedDisplay !== 'Không có dữ liệu' ? speedDisplay : null) : null;
+                                            const durationMinutesValue = currentDuration != null ? currentDuration : alt.durationMin;
+                                            const durationSeconds = typeof durationMinutesValue === 'number' && Number.isFinite(durationMinutesValue)
+                                                ? durationMinutesValue * 60
+                                                : 0;
+                                            const durationDisplay = formatEta(durationSeconds);
 
                                             return (
                                                 <div
@@ -1275,7 +1289,7 @@ export const ControlsPanel: React.FC<ControlsPanelProps> = ({
                                                                         Thời gian
                                                                     </div>
                                                                     <div className="text-xs font-semibold text-gray-900">
-                                                                        {currentDuration != null ? formatDuration(currentDuration) : formatDuration(alt.durationMin)}
+                                                                        {durationDisplay}
                                                                     </div>
                                                                 </div>
 
@@ -1283,7 +1297,7 @@ export const ControlsPanel: React.FC<ControlsPanelProps> = ({
                                                                 <div className="bg-white/70 border border-gray-200 rounded-md px-2 py-1.5 flex flex-col gap-0.5">
                                                                     <div className="flex items-center gap-1 text-[10px] font-medium text-gray-600">
                                                                         <Navigation size={10} className="text-blue-600" />
-                                                                        K.cách
+                                                                        Khoảng cách
                                                                     </div>
                                                                     <div className="text-xs font-semibold text-gray-900">
                                                                         {currentDistance != null ? formatDistance(currentDistance) : `${alt.distanceKm.toFixed(1)} km`}

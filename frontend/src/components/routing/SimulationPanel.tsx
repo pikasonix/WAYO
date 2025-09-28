@@ -80,7 +80,7 @@ export const SimulationPanel: React.FC<SimulationPanelProps> = ({
     return (
         <div className="absolute top-33 right-12 z-[360]">
             {isCollapsed ? (
-                <div className="flex w-[340px] max-w-[85vw] items-center gap-2 rounded-lg border border-gray-200 bg-white/95 px-3 py-2 shadow backdrop-blur">
+                <div className="flex w-[350px] max-w-[85vw] items-center gap-2 rounded-lg border border-gray-200 bg-white/95 px-3 py-2 shadow backdrop-blur">
                     <div className="flex flex-1 flex-col gap-1">
                         <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-600">Giả lập hành trình</span>
                         <div className="flex items-center gap-1 text-[10px] font-semibold text-gray-700">

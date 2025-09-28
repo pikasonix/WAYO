@@ -14,6 +14,7 @@ import { Toolbar } from './Toolbar';
 import { ControlsPanel, type AnnotationMetrics } from './ControlsPanel';
 import { GuidanceHUD } from './GuidanceHUD';
 import { SimulationPanel } from './SimulationPanel';
+import { createVehicleMarkerElement, updateVehicleMarkerElementColor } from './VehicleMarker';
 
 type Profile = 'driving' | 'walking' | 'cycling' | 'driving-traffic';
 
@@ -40,6 +41,16 @@ interface AdvancedOptions {
 }
 
 type CongestionCategory = 'unknown' | 'low' | 'moderate' | 'heavy' | 'severe';
+
+const CONGESTION_COLOR_MAP: Record<CongestionCategory, string> = {
+    severe: '#dc2626',
+    heavy: '#f97316',
+    moderate: '#facc15',
+    low: '#22c55e',
+    unknown: '#94a3b8',
+};
+
+const DEFAULT_TRAFFIC_COLOR = '#1d4ed8';
 
 const toMsFromUnit = (value: number, unit?: string | null): number => {
     if (!Number.isFinite(value)) return value;
@@ -182,6 +193,7 @@ export default function RoutingMap() {
     const routesRef = useRef<any[]>([]);
     const stepDataRef = useRef<FeatureCollection<Geometry> | null>(null);
     const congestionDataRef = useRef<FeatureCollection<Geometry> | null>(null);
+    const congestionLookupRef = useRef<Record<number, CongestionCategory>>({});
     const startMarkerRef = useRef<mapboxgl.Marker | null>(null);
     const endMarkerRef = useRef<mapboxgl.Marker | null>(null);
     const viaMarkersRef = useRef<mapboxgl.Marker[]>([]);
@@ -193,6 +205,7 @@ export default function RoutingMap() {
     const stepPopupsRef = useRef<mapboxgl.Popup[]>([]);
     // Simulation refs
     const simMarkerRef = useRef<mapboxgl.Marker | null>(null);
+    const simMarkerColorRef = useRef<string | null>(null);
     const simRAFRef = useRef<number | null>(null);
     const simCoordsRef = useRef<[number, number][]>([]);
     const simCumDistRef = useRef<number[]>([]);
@@ -827,6 +840,7 @@ export default function RoutingMap() {
 
     const createCongestionSegments = useCallback((route: any): FeatureCollection<Geometry> => {
         const features: Feature<LineString>[] = [];
+        const lookup: Record<number, CongestionCategory> = {};
 
         if (!route?.legs || !Array.isArray(route.legs) || !route?.geometry?.coordinates) {
             console.warn('⚠️ Invalid route data for congestion rendering', route);
@@ -911,6 +925,10 @@ export default function RoutingMap() {
                         coordIndex: globalIndex
                     }
                 } as Feature<LineString>);
+
+                if (typeof globalIndex === 'number' && Number.isFinite(globalIndex)) {
+                    lookup[globalIndex] = normalizedCongestion;
+                }
             });
 
             coordIndex += congestionData.length;
@@ -918,33 +936,37 @@ export default function RoutingMap() {
 
         console.log(`✅ Created ${features.length} congestion segments`);
         console.log('🚦 Congestion types found:', [...new Set(features.map(f => f.properties?.congestion))]);
+        congestionLookupRef.current = lookup;
 
         return { type: 'FeatureCollection', features };
     }, []);
 
+    const getCongestionColorForCategory = useCallback((category?: CongestionCategory | null) => {
+        if (!category) return DEFAULT_TRAFFIC_COLOR;
+        return CONGESTION_COLOR_MAP[category] ?? DEFAULT_TRAFFIC_COLOR;
+    }, []);
+
+    const getSegmentColorAtDistance = useCallback((distance: number) => {
+        const cums = simCumDistRef.current;
+        const coords = simCoordsRef.current;
+        if (!cums || cums.length < 2 || !coords || coords.length < 2) {
+            return getCongestionColorForCategory();
+        }
+
+        if (distance <= 0) {
+            const category = congestionLookupRef.current[0];
+            return getCongestionColorForCategory(category);
+        }
+
+        let idx = 1;
+        while (idx < cums.length && cums[idx] < distance) idx++;
+        const coordIdx = Math.max(0, Math.min(idx - 1, coords.length - 2));
+        const category = congestionLookupRef.current[coordIdx];
+        return getCongestionColorForCategory(category);
+    }, [getCongestionColorForCategory]);
+
     const createVehicleElement = useCallback((color: string = '#0ea5e9') => {
-        const el = document.createElement('div');
-        el.style.width = '36px';
-        el.style.height = '36px';
-        el.style.borderRadius = '50%';
-        el.style.background = 'linear-gradient(180deg, rgba(20,20,20,0.9), rgba(20,20,20,0.6))';
-        el.style.display = 'flex';
-        el.style.alignItems = 'center';
-        el.style.justifyContent = 'center';
-        el.style.boxShadow = '0 6px 12px rgba(0,0,0,0.35)';
-        el.style.backdropFilter = 'blur(2px)';
-        el.style.transform = 'translateY(-4px)';
-        const svgNS = 'http://www.w3.org/2000/svg';
-        const svg = document.createElementNS(svgNS, 'svg');
-        svg.setAttribute('viewBox', '0 0 24 24');
-        svg.setAttribute('width', '22');
-        svg.setAttribute('height', '22');
-        const path = document.createElementNS(svgNS, 'path');
-        path.setAttribute('d', 'M12 2 L18 20 L12 16 L6 20 Z');
-        path.setAttribute('fill', color);
-        svg.appendChild(path);
-        el.appendChild(svg);
-        return el;
+        return createVehicleMarkerElement(color);
     }, []);
 
     const applyRouteSelection = useCallback((routesData: any[], index: number, refitView: boolean = true) => {
@@ -954,6 +976,8 @@ export default function RoutingMap() {
             setRouteSummary(null);
             setAnnotationMetrics({});
             routeDataRef.current = { type: 'FeatureCollection', features: [] };
+            congestionLookupRef.current = {};
+            simMarkerColorRef.current = null;
             if (mapRef.current) {
                 const src = mapRef.current.getSource(routeSourceId) as mapboxgl.GeoJSONSource | undefined;
                 src?.setData(routeDataRef.current);
@@ -1003,6 +1027,7 @@ export default function RoutingMap() {
             const congestionSrc = mapRef.current.getSource(congestionSourceId) as mapboxgl.GeoJSONSource | undefined;
             congestionDataRef.current = emptySteps;
             congestionSrc?.setData(emptySteps);
+            congestionLookupRef.current = {};
         }
 
         if (openStepPopupRef.current) { openStepPopupRef.current.remove(); openStepPopupRef.current = null; }
@@ -1245,7 +1270,9 @@ export default function RoutingMap() {
         setSimEtaSec(routeTotalDurationSecRef.current);
         setSimToNextManeuverM(Math.max(0, (stepEndCumRef.current[0] || 0) - 0));
         const startPos = coords[0];
-        const simEl = createVehicleElement('#f59e0b');
+        const startColor = getSegmentColorAtDistance(0);
+        const simEl = createVehicleElement(startColor);
+        simMarkerColorRef.current = startColor;
         if (simMarkerRef.current) simMarkerRef.current.remove();
         if (mapRef.current) {
             simMarkerRef.current = new mapboxgl.Marker({ element: simEl, anchor: 'center' as any })
@@ -1254,7 +1281,7 @@ export default function RoutingMap() {
         }
 
         setSimPlaying(false);
-    }, [createVehicleElement, distanceMeters, keepZoom, setAnnotationMetrics]);
+    }, [createCongestionSegments, createVehicleElement, distanceMeters, getSegmentColorAtDistance, keepZoom, setAnnotationMetrics]);
 
 
     // Robust geolocation handler for "Pin my location"
@@ -1633,6 +1660,11 @@ export default function RoutingMap() {
                 simMarkerRef.current!.setLngLat(pos as any);
                 const el = simMarkerRef.current!.getElement() as HTMLDivElement;
                 el.style.transform = `translateY(-4px) rotate(${bearing}deg)`;
+                const trafficColor = getSegmentColorAtDistance(simDistRef.current);
+                if (trafficColor && trafficColor !== simMarkerColorRef.current) {
+                    updateVehicleMarkerElementColor(el, trafficColor);
+                    simMarkerColorRef.current = trafficColor;
+                }
                 let camBearing = bearing;
                 if (smoothTurns) {
                     const maxTurn = maxTurnRateDegPerSecRef.current * dtSec;
@@ -2122,6 +2154,11 @@ export default function RoutingMap() {
                         simMarkerRef.current.setLngLat(sample.pos as any);
                         const el = simMarkerRef.current.getElement() as HTMLDivElement;
                         el.style.transform = `translateY(-4px) rotate(${sample.bearing}deg)`;
+                        const resetColor = getSegmentColorAtDistance(0);
+                        if (resetColor && resetColor !== simMarkerColorRef.current) {
+                            updateVehicleMarkerElementColor(el, resetColor);
+                            simMarkerColorRef.current = resetColor;
+                        }
                         cameraBearingRef.current = sample.bearing;
                         if (simFollow && mapRef.current) {
                             const baseZoom = simLockedZoomRef.current != null ? simLockedZoomRef.current : mapRef.current.getZoom();
