@@ -11,12 +11,22 @@ jobs:
   ping:
     name: Keep Function Warm
     runs-on: ubuntu-latest
-    
+    env:
+      # Store these as repository secrets (Settings → Secrets & variables → Actions)
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+
     steps:
       - name: Send HTTP Request
         run: |
-          curl -X POST https://jrxpkakimcdfecdepmyu.supabase.co/functions/v1/rebuild-website \
+          # fail early if secrets are not provided
+          if [ -z "$NEXT_PUBLIC_SUPABASE_URL" ] || [ -z "$NEXT_PUBLIC_SUPABASE_ANON_KEY" ]; then
+            echo "Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY secrets"
+            exit 1
+          fi
+
+          curl -X POST "$NEXT_PUBLIC_SUPABASE_URL/functions/v1/rebuild-website" \
             -H "Content-Type: application/json" \
-            -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpyeHBrYWtpbWNkZmVjZGVwbXl1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDM4NzAwODMsImV4cCI6MjA1OTQ0NjA4M30.F-NJrY02GF6BqtdDeoWufJJEX0UrZivPdo8AwFRz6Qc" \
+            -H "Authorization: Bearer $NEXT_PUBLIC_SUPABASE_ANON_KEY" \
             -d '{}' \
-            || echo "Ping sent" 
+            || echo "Ping sent"

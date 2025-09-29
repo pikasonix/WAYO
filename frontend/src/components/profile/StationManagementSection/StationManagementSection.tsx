@@ -55,7 +55,7 @@ const StationManagementSection: React.FC<StationManagementSectionProps> = ({
     stations,
     onChange,
 }) => {
-    const [stationList, setStationList] = useState<StationItem[]>(
+    const [StationFilter, setStationFilter] = useState<StationItem[]>(
         stations ?? defaultStations
     );
     const [formValues, setFormValues] = useState(emptyStationForm);
@@ -70,7 +70,7 @@ const StationManagementSection: React.FC<StationManagementSectionProps> = ({
         }
 
         if (isEditing && editingId) {
-            const updated = stationList.map((station) =>
+            const updated = StationFilter.map((station) =>
                 station.id === editingId
                     ? {
                         ...station,
@@ -80,7 +80,7 @@ const StationManagementSection: React.FC<StationManagementSectionProps> = ({
                     }
                     : station
             );
-            setStationList(updated);
+            setStationFilter(updated);
             onChange?.(updated);
             resetForm();
             return;
@@ -94,8 +94,8 @@ const StationManagementSection: React.FC<StationManagementSectionProps> = ({
             status: "INACTIVE",
         };
 
-        const updated = [...stationList, newStation];
-        setStationList(updated);
+        const updated = [...StationFilter, newStation];
+        setStationFilter(updated);
         onChange?.(updated);
         resetForm();
     };
@@ -106,7 +106,7 @@ const StationManagementSection: React.FC<StationManagementSectionProps> = ({
     };
 
     const toggleStationStatus = (id: string) => {
-        const updated = stationList.map((station) => {
+        const updated = StationFilter.map((station) => {
             if (station.id !== id) {
                 return station;
             }
@@ -117,7 +117,7 @@ const StationManagementSection: React.FC<StationManagementSectionProps> = ({
                 status: nextStatus,
             };
         });
-        setStationList(updated);
+        setStationFilter(updated);
         onChange?.(updated);
     };
 
@@ -225,7 +225,7 @@ const StationManagementSection: React.FC<StationManagementSectionProps> = ({
                         <div>
                             <h3 className="text-base font-semibold text-gray-900">Danh sách trạm sạc</h3>
                             <p className="text-xs text-gray-500">
-                                {stationList.length} trạm được quản lý trong hệ thống
+                                {StationFilter.length} trạm được quản lý trong hệ thống
                             </p>
                         </div>
                     </div>
@@ -242,7 +242,7 @@ const StationManagementSection: React.FC<StationManagementSectionProps> = ({
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-100 text-sm text-gray-700">
-                                {stationList.map((station) => (
+                                {StationFilter.map((station) => (
                                     <tr key={station.id} className="hover:bg-gray-50/60">
                                         <td className="px-6 py-3">
                                             <div className="flex items-center gap-2">
@@ -260,8 +260,8 @@ const StationManagementSection: React.FC<StationManagementSectionProps> = ({
                                         <td className="px-6 py-3">
                                             <span
                                                 className={`inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-full ${station.status === "ACTIVE"
-                                                        ? "bg-emerald-50 text-emerald-600"
-                                                        : "bg-gray-100 text-gray-500"
+                                                    ? "bg-emerald-50 text-emerald-600"
+                                                    : "bg-gray-100 text-gray-500"
                                                     }`}
                                             >
                                                 {station.status === "ACTIVE" ? (

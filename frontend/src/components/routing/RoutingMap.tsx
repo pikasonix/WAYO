@@ -15,6 +15,10 @@ import { ControlsPanel, type AnnotationMetrics } from './ControlsPanel';
 import { GuidanceHUD } from './GuidanceHUD';
 import { SimulationPanel } from './SimulationPanel';
 import { createVehicleMarkerElement, updateVehicleMarkerElementColor } from './VehicleMarker';
+import type { Station } from './StationPinTool';
+import { StationFilter } from './StationFilter';
+import { StationService } from './StationService';
+import { createStationMarkerElement } from './StationMarker';
 
 type Profile = 'driving' | 'walking' | 'cycling' | 'driving-traffic';
 
@@ -236,6 +240,10 @@ export default function RoutingMap() {
             };
         });
     }, [routes]);
+
+    // Station state
+    const [stations, setStations] = useState<Station[]>([]);
+    const stationMarkersRef = useRef<mapboxgl.Marker[]>([]);
     useEffect(() => {
         routesRef.current = routes;
     }, [routes]);
@@ -249,7 +257,7 @@ export default function RoutingMap() {
     const [keepZoom, setKeepZoom] = useState<boolean>(false);
     const smoothTurns = true;
     const maxTurnRateDegPerSecRef = useRef<number>(60);
-    const [showAllPopups, setShowAllPopups] = useState<boolean>(true);
+    const [showAllPopups, setShowAllPopups] = useState<boolean>(false);
     // Display labels for picked/search points
     const [startLabel, setStartLabel] = useState<string>("");
     const [endLabel, setEndLabel] = useState<string>("");
@@ -685,6 +693,8 @@ export default function RoutingMap() {
                 } catch { }
                 setMapReady(true);
                 maybeApply3D();
+                // Load stations when map is ready
+                setTimeout(() => loadStations(), 100); // Small delay to ensure map is fully loaded
                 try {
                     if (courseUpRef.current && routeDataRef.current) {
                         const routeGeom = routeDataRef.current.features?.[0]?.geometry as any;
@@ -806,6 +816,61 @@ export default function RoutingMap() {
         const targetZoom = keepZoom ? currentZoom : Math.max(currentZoom, 16.5);
         mapRef.current.easeTo({ center: [lng, lat], zoom: targetZoom, duration: 450 });
     }, [keepZoom]);
+
+    // Station handlers
+    const loadStations = useCallback(async () => {
+        try {
+            const data = await StationService.getAllStations();
+            setStations(data);
+        } catch (error) {
+            console.error('Lỗi khi tải danh sách trạm:', error);
+        }
+    }, []);
+
+    const handleStationAdded = useCallback((newStation: Station) => {
+        setStations(prev => [newStation, ...prev]);
+        // Add marker to map
+        if (mapRef.current && newStation.lat && newStation.lng) {
+            const element = createStationMarkerElement(newStation, () => {
+                focusOnCoordinate({ lat: newStation.lat, lng: newStation.lng });
+            });
+            const marker = new mapboxgl.Marker({ element })
+                .setLngLat([newStation.lng, newStation.lat])
+                .addTo(mapRef.current);
+            stationMarkersRef.current.push(marker);
+        }
+    }, [focusOnCoordinate]);
+
+    const handleStationClick = useCallback((station: Station) => {
+        if (station.lat && station.lng) {
+            focusOnCoordinate({ lat: station.lat, lng: station.lng });
+        }
+    }, [focusOnCoordinate]);
+
+    const handleStationNavigate = useCallback((station: Station) => {
+        if (typeof station.lat !== 'number' || typeof station.lng !== 'number' || Number.isNaN(station.lat) || Number.isNaN(station.lng)) {
+            return;
+        }
+
+        const { lat, lng, name } = station;
+        setEndPoint({ lat, lng });
+        setEndLabel(name || `${lat.toFixed(6)}, ${lng.toFixed(6)}`);
+        focusOnCoordinate({ lat, lng });
+        void updateEndLabelFrom(lng, lat);
+    }, [focusOnCoordinate, setEndPoint, setEndLabel, updateEndLabelFrom]);
+
+    const handleStationDelete = useCallback((stationId: string) => {
+        setStations(prev => prev.filter(s => s.id !== stationId));
+        // Remove marker from map
+        const markerIndex = stationMarkersRef.current.findIndex(marker => {
+            const lngLat = marker.getLngLat();
+            return stations.find(s => s.id === stationId && s.lng === lngLat.lng && s.lat === lngLat.lat);
+        });
+        if (markerIndex >= 0) {
+            stationMarkersRef.current[markerIndex].remove();
+            stationMarkersRef.current.splice(markerIndex, 1);
+        }
+    }, [stations]);
 
     const toggleTraffic = useCallback(() => {
         if (!mapRef.current) return;
@@ -1466,6 +1531,28 @@ export default function RoutingMap() {
         }
     }, [mapReady, startPoint, endPoint, updateStartLabelFrom, updateEndLabelFrom]);
 
+    // Station markers effect
+    useEffect(() => {
+        if (!mapReady || !mapRef.current) return;
+
+        // Clear existing station markers
+        stationMarkersRef.current.forEach(marker => marker.remove());
+        stationMarkersRef.current = [];
+
+        // Add new station markers
+        stations.forEach(station => {
+            if (station.lat && station.lng) {
+                const element = createStationMarkerElement(station, () => {
+                    focusOnCoordinate({ lat: station.lat, lng: station.lng });
+                });
+                const marker = new mapboxgl.Marker({ element })
+                    .setLngLat([station.lng, station.lat])
+                    .addTo(mapRef.current!);
+                stationMarkersRef.current.push(marker);
+            }
+        });
+    }, [mapReady, stations, focusOnCoordinate]);
+
     useEffect(() => {
         if (!mapReady || !mapRef.current) return;
         viaMarkersRef.current.forEach((mk) => mk.remove());
@@ -2099,6 +2186,17 @@ export default function RoutingMap() {
                 toggleCongestion={toggleCongestion}
                 isCongestionVisible={isCongestionVisible}
             />
+
+            {/* Station List */}
+            <div className="absolute top-80 right-4 z-10 w-80">
+                <StationFilter
+                    onStationClick={handleStationClick}
+                    onStationDelete={handleStationDelete}
+                    onStationAdded={handleStationAdded}
+                    onStationNavigate={handleStationNavigate}
+                    map={mapRef.current}
+                />
+            </div>
             {error ? (
                 <div className="p-4 text-red-600 text-sm">{error}</div>
             ) : null}

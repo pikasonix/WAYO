@@ -17,6 +17,7 @@ import { Toaster } from "@/components/ui/sonner";
 import MapHeader from "@/components/MapHeader";
 import MAP_LINKS from '@/config/mapLinks';
 import Script from 'next/script';
+import ScrollHeader from "@/components/ScrollHeader";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -63,50 +64,52 @@ export default function RootLayout({
           <ProfileUpdater />
           <NavbarShadow />
           {/* Navigation Header */}
-          <nav
-            className="fixed w-full backdrop-blur-[20px] border-b-1 border-gray-200 z-50 transition-shadow duration-500"
-            id="navbar"
-          >
-            <div className="container mx-auto px-4 max-w-7xl">
-              <div className="flex justify-between h-16 items-center">
-                {/* Left side: Logo and navigation links */}
-                <div className="flex items-center">
-                  {/* Logo */}
-                  <Link href="/" className="flex items-center gap-3">
-                    <Image
-                      src={process.env.NEXT_PUBLIC_LOGO_WAYO || "/favicon.png"}
-                      alt="WAYO Logo"
-                      width={32}
-                      height={32}
-                      className="rounded-md"
-                    />
-                    <span className="font-semibold text-xl">WAYO</span>
-                  </Link>
+          <ScrollHeader className="fixed w-full z-50">
+            <nav
+              className="w-full backdrop-blur-[20px] border-b-1 border-gray-200 transition-shadow duration-500"
+              id="navbar"
+            >
+              <div className="container mx-auto px-4 max-w-7xl">
+                <div className="flex justify-between h-16 items-center">
+                  {/* Left side: Logo and navigation links */}
+                  <div className="flex items-center">
+                    {/* Logo */}
+                    <Link href="/" className="flex items-center gap-3">
+                      <Image
+                        src={process.env.NEXT_PUBLIC_LOGO_WAYO || "/favicon.png"}
+                        alt="WAYO Logo"
+                        width={32}
+                        height={32}
+                        className="rounded-md"
+                      />
+                      <span className="font-semibold text-xl">WAYO</span>
+                    </Link>
 
-                  {/* Desktop Navigation Links (map-aware) */}
-                  <MapHeader defaultLinks={navLinks} mapLinks={MAP_LINKS} />
-                </div>
-
-                {/* User navigation and mobile menu */}
-                <div className="flex items-center">
-                  {/* Desktop Auth Navigation */}
-                  <div className="hidden md:block">
-                    <DesktopLoginsSignups />
+                    {/* Desktop Navigation Links (map-aware) */}
+                    <MapHeader defaultLinks={navLinks} mapLinks={MAP_LINKS} />
                   </div>
 
-                  {/* Mobile Menu Button */}
-                  <div className="md:hidden">
-                    <MobileMenu />
+                  {/* User navigation and mobile menu */}
+                  <div className="flex items-center">
+                    {/* Desktop Auth Navigation */}
+                    <div className="hidden md:block">
+                      <DesktopLoginsSignups />
+                    </div>
+
+                    {/* Mobile Menu Button */}
+                    <div className="md:hidden">
+                      <MobileMenu />
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
-          </nav>
+            </nav>
+          </ScrollHeader>
 
           <main className="pt-16">{children}</main>
 
           {/* Footer */}
-          <Footer />
+          {/* <Footer /> */}
           <Toaster />
         </ReduxProvider>
       </body>
