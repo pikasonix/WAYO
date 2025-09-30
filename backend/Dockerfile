@@ -1,40 +1,50 @@
+# -------------------
+# Build stage (C++)
+# -------------------
 FROM alpine:3.19 AS build
 
-# Install build deps (g++, make) to compile C++ binary
+# Cài g++ và toolchain để compile C++
 RUN apk add --no-cache g++ make cmake pkgconf build-base
 
 WORKDIR /src
 
-# Copy only the C++ source to compile
+# Copy source code vào container
 COPY PDPTW_HYBRID_ACO_GREEDY_V3.cpp /src/
 
-# Compile to a linux executable
-RUN g++ PDPTW_HYBRID_ACO_GREEDY_V3.cpp -O2 -std=c++17 -o PDPTW_HYBRID_ACO_GREEDY_V3 || true
+# Compile ra binary Linux
+RUN g++ PDPTW_HYBRID_ACO_GREEDY_V3.cpp -O2 -std=c++17 -o PDPTW_HYBRID_ACO_GREEDY_V3
 
-
+# -------------------
+# Runtime stage (Node.js)
+# -------------------
 FROM node:18-alpine
 
 WORKDIR /usr/src/app
 
-# Install runtime deps
+# Copy package.json và cài deps
 COPY package*.json ./
 RUN npm ci --only=production
 
-# Copy app code
+# Copy toàn bộ source Node.js
 COPY . .
 
-# Copy compiled binary from build stage if present
+# Copy binary từ build stage
 COPY --from=build /src/PDPTW_HYBRID_ACO_GREEDY_V3 ./PDPTW_HYBRID_ACO_GREEDY_V3
 
-# Make sure executable bits are set (if binary copied exists)
-RUN if [ -f ./PDPTW_HYBRID_ACO_GREEDY_V3 ]; then chmod +x ./PDPTW_HYBRID_ACO_GREEDY_V3; fi || true
+# Đảm bảo binary có quyền thực thi
+RUN chmod +x ./PDPTW_HYBRID_ACO_GREEDY_V3
 
+# Debug: liệt kê file để chắc chắn binary tồn tại
+RUN ls -l /usr/src/app && file /usr/src/app/PDPTW_HYBRID_ACO_GREEDY_V3
+
+# Thiết lập cổng
 ENV PORT=3001
 EXPOSE 3001
 
-# Use non-root user for safety and grant ownership of the app directory
+# Tạo user không phải root để chạy app
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup \
     && chown -R appuser:appgroup /usr/src/app
 USER appuser
 
+# Start backend
 CMD ["node", "server.js"]
