@@ -32,8 +32,9 @@ RUN if [ -f ./PDPTW_HYBRID_ACO_GREEDY_V3 ]; then chmod +x ./PDPTW_HYBRID_ACO_GRE
 ENV PORT=3001
 EXPOSE 3001
 
-# Use non-root user for safety
-RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+# Use non-root user for safety and grant ownership of the app directory
+RUN addgroup -S appgroup && adduser -S appuser -G appgroup \
+    && chown -R appuser:appgroup /usr/src/app
 USER appuser
 
 CMD ["node", "server.js"]

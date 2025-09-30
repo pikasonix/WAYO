@@ -160,9 +160,21 @@ function MapPageClient() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ instance: instanceText, params }),
             });
-            const data = await response.json();
+            const rawBody = await response.text();
+            let data: any = null;
+            try {
+                data = rawBody ? JSON.parse(rawBody) : null;
+            } catch (parseError) {
+                console.error('Backend returned non-JSON payload:', rawBody);
+                throw new Error(`Máy chủ trả về dữ liệu không hợp lệ (status ${response.status}).`);
+            }
             console.log('Response from backend:', data);
-            setLoading(false);
+            if (!response.ok) {
+                const message = (data && typeof data === 'object' && 'error' in data)
+                    ? (data.error || `Yêu cầu thất bại với mã ${response.status}`)
+                    : `Yêu cầu thất bại với mã ${response.status}`;
+                throw new Error(message);
+            }
             if (data && data.success && data.result) {
                 console.log('Solution received, loading into visualizer...');
                 await loadSolutionFromText(data.result);
@@ -175,8 +187,9 @@ function MapPageClient() {
             }
         } catch (error: any) {
             console.error('Error running instance:', error);
-            setLoading(false);
             alert('Lỗi kết nối: ' + (error?.message || error));
+        } finally {
+            setLoading(false);
         }
     }, [instanceText, instance, params, readInstanceFile, loadSolutionFromText]);
 

@@ -2,6 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
 const { execFile } = require('child_process');
 const cors = require('cors');
 
@@ -19,6 +20,14 @@ if (!fs.existsSync(path.join(__dirname, ALGORITHM_EXECUTABLE))) {
     if (fs.existsSync(path.join(__dirname, alt))) {
         ALGORITHM_EXECUTABLE = alt;
     }
+}
+
+const BASE_WORK_DIR = process.env.APP_WORK_DIR || path.join(os.tmpdir(), 'wayo');
+try {
+    fs.mkdirSync(BASE_WORK_DIR, { recursive: true });
+    console.log('Work directory ready at', BASE_WORK_DIR);
+} catch (err) {
+    console.error('Failed to prepare work directory:', err);
 }
 
 // Allow all origins by reflecting the request origin in the response
@@ -51,34 +60,75 @@ app.post('/api/solve', (req, res) => {
         params.restart_threshold || process.env.DEFAULT_RESTART_THRESHOLD || 2
     ].join(' ');
 
-    const inputPath = path.join(__dirname, 'input.txt');
+    let workDir = '';
+    try {
+        workDir = fs.mkdtempSync(path.join(BASE_WORK_DIR, 'job-'));
+    } catch (err) {
+        console.error('Failed to create work directory:', err);
+        return res.status(500).json({ success: false, error: 'Không tạo được thư mục tạm' });
+    }
+
+    const cleanup = () => {
+        if (workDir) {
+            try {
+                fs.rmSync(workDir, { recursive: true, force: true });
+            } catch (cleanupErr) {
+                console.warn('Failed to clean up work dir', workDir, cleanupErr);
+            }
+        }
+    };
+
+    const inputPath = path.join(workDir, 'input.txt');
     const fullContent = paramLine + '\n' + instance;
-    fs.writeFileSync(inputPath, fullContent, 'utf8');
-    console.log('Parameters written to input.txt:', paramLine);
+    try {
+        fs.writeFileSync(inputPath, fullContent, 'utf8');
+    } catch (err) {
+        console.error('Failed to write input.txt:', err);
+        cleanup();
+        return res.status(500).json({ success: false, error: 'Không ghi được file input.txt' });
+    }
+    console.log('Parameters written to', inputPath, paramLine);
 
     const exePath = path.join(__dirname, ALGORITHM_EXECUTABLE);
-    console.log('Running exe:', exePath);
-    execFile(exePath, [], { cwd: __dirname }, (error, stdout, stderr) => {
+    console.log('Running exe:', exePath, 'in', workDir);
+    execFile(exePath, [], { cwd: workDir }, (error, stdout, stderr) => {
         if (error) {
             console.log('Error running exe:', error, stderr);
+            cleanup();
             return res.status(500).json({ success: false, error: stderr || error.message });
         }
 
-        const outputPath = path.join(__dirname, 'output.txt');
+        const outputPath = path.join(workDir, 'output.txt');
         let result = '';
         try {
             result = fs.readFileSync(outputPath, 'utf8');
         } catch (e) {
             console.log('Error reading output.txt:', e);
+            cleanup();
             return res.status(500).json({ success: false, error: 'Không đọc được file output.txt' });
         }
         res.json({ success: true, result });
+        cleanup();
     });
 });
 
 // simple health check for platform probes
 app.get('/health', (req, res) => {
     res.json({ status: 'ok' });
+});
+
+// JSON 404 handler to avoid HTML responses
+app.use((req, res) => {
+    res.status(404).json({ success: false, error: 'Endpoint not found' });
+});
+
+// Centralized error handler to ensure JSON responses
+app.use((err, req, res, next) => {
+    console.error('Unhandled error:', err);
+    if (res.headersSent) {
+        return next(err);
+    }
+    res.status(500).json({ success: false, error: err?.message || 'Internal server error' });
 });
 
 app.listen(PORT, HOST, () => {
