@@ -475,7 +475,7 @@ export default function RoutingMap() {
         const token = config.mapbox?.accessToken ?? "";
         if (!token) {
             setError(
-                "Thiếu Mapbox access token. Hãy đặt biến môi trường NEXT_PUBLIC_MAPBOX_TOKEN."
+                "Thiếu Mapbox access token. Hãy đặt biến môi trường NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN."
             );
             return;
         }

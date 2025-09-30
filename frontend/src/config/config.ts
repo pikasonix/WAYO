@@ -6,12 +6,8 @@ const config = {
     },
     mapbox: {
         // Support common env var names
-        accessToken: process.env.NEXT_PUBLIC_MAPBOX_TOKEN
-            || process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN
-            || process.env.VITE_APP_MAPBOX_TOKEN
-            || '',
+        accessToken: process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN,
         style: process.env.NEXT_PUBLIC_MAPBOX_STYLE
-            || process.env.VITE_APP_MAPBOX_STYLE
             || 'mapbox://styles/mapbox/streets-v12'
     },
     map: {
@@ -19,17 +15,14 @@ const config = {
         attribution: process.env.NEXT_PUBLIC_MAP_ATTRIBUTION || '&copy; <a href="http://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
     },
     mapDefaults: {
-        // support both NEXT_PUBLIC_ and VITE_ env var names (Vite compatibility)
-        defaultCenterLat: Number(process.env.NEXT_PUBLIC_DEFAULT_CENTER_LAT ?? process.env.VITE_APP_DEFAULT_CENTER_LAT) || 21.0227,
-        defaultCenterLng: Number(process.env.NEXT_PUBLIC_DEFAULT_CENTER_LNG ?? process.env.VITE_APP_DEFAULT_CENTER_LNG) || 105.8194,
-        defaultZoom: Number(process.env.NEXT_PUBLIC_DEFAULT_ZOOM ?? process.env.VITE_APP_DEFAULT_ZOOM) || 12,
+        // support both NEXT_PUBLIC_ and NEXT_ env var names (Vite compatibility)
+        defaultCenterLat: Number(process.env.NEXT_PUBLIC_DEFAULT_CENTER_LAT ?? 21.0227),
+        defaultCenterLng: Number(process.env.NEXT_PUBLIC_DEFAULT_CENTER_LNG ?? 105.8194),
+        defaultZoom: Number(process.env.NEXT_PUBLIC_DEFAULT_ZOOM ?? 12),
     },
     geocoding: {
         provider: process.env.NEXT_PUBLIC_GEOCODING_PROVIDER || 'goong',
-        opencageKey: process.env.NEXT_PUBLIC_OPENCAGE_KEY || '',
-        googleKey: process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || '',
         goongKey: process.env.NEXT_PUBLIC_GOONG_API_KEY || '',
-        // future: hereKey, googleKey, etc.
     },
     defaultParams: {
         num_routes: Number(process.env.NEXT_PUBLIC_DEFAULT_NUM_ROUTES) || 7,

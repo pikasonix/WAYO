@@ -26,9 +26,9 @@ const nextConfig: NextConfig = {
     ignoreDuringBuilds: true,
   },
   env: {
-    // Surface Mapbox token to the browser. Prefer NEXT_PUBLIC_ but fall back to VITE_ for compatibility
+    // Surface Mapbox token to the browser. Prefer NEXT_PUBLIC_ but fall back to NEXT_ for compatibility
     NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN:
-      process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN || process.env.VITE_MAPBOX_ACCESS_TOKEN,
+      process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN || process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN,
   },
 };
 

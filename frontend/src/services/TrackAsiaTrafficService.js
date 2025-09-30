@@ -43,11 +43,11 @@ class TrackAsiaTrafficService {
      * Get API key from environment variables with fallback
      */
     getApiKey() {
-        // Prefer Vite env var (VITE_TRACK_ASIA_API_KEY). Fall back to REACT_APP_* for legacy.
+        // Prefer Vite env var (NEXT_TRACK_ASIA_API_KEY). Fall back to REACT_APP_* for legacy.
         try {
-            if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_TRACK_ASIA_API_KEY) {
-                console.log('Using Track Asia API key from import.meta.env.VITE_TRACK_ASIA_API_KEY');
-                return import.meta.env.VITE_TRACK_ASIA_API_KEY;
+            if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.NEXT_TRACK_ASIA_API_KEY) {
+                console.log('Using Track Asia API key from import.meta.env.NEXT_TRACK_ASIA_API_KEY');
+                return import.meta.env.NEXT_TRACK_ASIA_API_KEY;
             }
         } catch (e) { /* ignore in non-Vite env */ }
 
@@ -58,9 +58,9 @@ class TrackAsiaTrafficService {
 
         // Try window object (if set manually)
         if (typeof window !== 'undefined') {
-            if (window.VITE_TRACK_ASIA_API_KEY) {
-                console.log('Using Track Asia API key from window.VITE_TRACK_ASIA_API_KEY');
-                return window.VITE_TRACK_ASIA_API_KEY;
+            if (window.NEXT_TRACK_ASIA_API_KEY) {
+                console.log('Using Track Asia API key from window.NEXT_TRACK_ASIA_API_KEY');
+                return window.NEXT_TRACK_ASIA_API_KEY;
             }
             if (window.REACT_APP_TRACK_ASIA_API_KEY) {
                 console.log('Using Track Asia API key from window.REACT_APP_TRACK_ASIA_API_KEY');
@@ -70,9 +70,9 @@ class TrackAsiaTrafficService {
 
         // Server-side env fallback
         if (typeof process !== 'undefined' && process.env) {
-            if (process.env.VITE_TRACK_ASIA_API_KEY) {
-                console.log('Using Track Asia API key from process.env.VITE_TRACK_ASIA_API_KEY');
-                return process.env.VITE_TRACK_ASIA_API_KEY;
+            if (process.env.NEXT_TRACK_ASIA_API_KEY) {
+                console.log('Using Track Asia API key from process.env.NEXT_TRACK_ASIA_API_KEY');
+                return process.env.NEXT_TRACK_ASIA_API_KEY;
             }
             if (process.env.REACT_APP_TRACK_ASIA_API_KEY) {
                 console.log('Using Track Asia API key from process.env.REACT_APP_TRACK_ASIA_API_KEY');

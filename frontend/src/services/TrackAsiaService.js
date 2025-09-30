@@ -28,9 +28,9 @@ class TrackAsiaService {
     }
 
     getApiKey() {
-        return import.meta.env?.VITE_TRACK_ASIA_API_KEY ||
-            (typeof window !== 'undefined' ? window.VITE_TRACK_ASIA_API_KEY : undefined) ||
-            (typeof process !== 'undefined' ? process.env?.VITE_TRACK_ASIA_API_KEY : undefined) ||
+        return import.meta.env?.NEXT_TRACK_ASIA_API_KEY ||
+            (typeof window !== 'undefined' ? window.NEXT_TRACK_ASIA_API_KEY : undefined) ||
+            (typeof process !== 'undefined' ? process.env?.NEXT_TRACK_ASIA_API_KEY : undefined) ||
             'public_key';
     }
 
